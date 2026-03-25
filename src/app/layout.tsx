@@ -17,6 +17,9 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: 'Better Mermaid Dashboard',
   description: 'Compact Mermaid dashboard powered by beautiful-mermaid and Next.js 16.',
+  icons: {
+    icon: '/favicon.ico',
+  },
 }
 
 export default function RootLayout({
