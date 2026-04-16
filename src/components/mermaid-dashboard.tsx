@@ -40,6 +40,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { claroMermaidFont, claroMermaidTheme } from '@/lib/claro-mermaid-theme'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
@@ -87,13 +88,14 @@ type MermaidModule = typeof import('beautiful-mermaid')
 
 const STORAGE_KEY = 'better-mermaid-next:v3'
 const DEFAULT_CODE_FONT_SIZE = 16
-const DEFAULT_THEME = 'github-dark'
+const DEFAULT_THEME = 'claro'
 const DEFAULT_CODE = `graph TD
   Start[Start] --> Draft[Edit Mermaid]
   Draft --> Render[Render preview]
   Render --> Share[Export SVG]
 `
 const THEME_NAMES = [
+  'claro',
   'catppuccin-latte',
   'catppuccin-mocha',
   'dracula',
@@ -111,12 +113,7 @@ const THEME_NAMES = [
   'zinc-light',
 ]
 const fallbackColors: DiagramColors = {
-  accent: '#8ab4ff',
-  bg: '#0d1117',
-  border: '#273142',
-  fg: '#e6edf3',
-  line: '#273142',
-  surface: '#11161d',
+  ...claroMermaidTheme,
 }
 const themeNames = [...THEME_NAMES].sort((left, right) =>
   formatThemeName(left).localeCompare(formatThemeName(right)),
@@ -400,10 +397,13 @@ export function MermaidDashboard() {
           return
         }
 
-        const colors = mermaid.THEMES[state.theme] ?? mermaid.THEMES[DEFAULT_THEME]
+        const colors =
+          state.theme === 'claro'
+            ? claroMermaidTheme
+            : (mermaid.THEMES[state.theme] ?? mermaid.THEMES['github-dark'])
         const svg = mermaid.renderMermaidSVG(debouncedCode, {
           ...colors,
-          font: 'Sora, sans-serif',
+          font: state.theme === 'claro' ? `${claroMermaidFont}, sans-serif` : 'Sora, sans-serif',
           interactive: true,
           layerSpacing: 40,
           nodeSpacing: 24,
@@ -886,7 +886,12 @@ export function MermaidDashboard() {
             </div>
 
             <div
-              className="preview-frame min-h-0 overflow-hidden rounded-lg border border-border bg-[linear-gradient(180deg,#090b0f,#07080b)]"
+              className={cn(
+                'preview-frame min-h-0 overflow-hidden rounded-lg border border-border',
+                state.theme === 'claro'
+                  ? 'bg-[linear-gradient(180deg,#f8f8f8,#ffffff)]'
+                  : 'bg-[linear-gradient(180deg,#090b0f,#07080b)]',
+              )}
               ref={previewRef}
               style={previewStyle}
             >
