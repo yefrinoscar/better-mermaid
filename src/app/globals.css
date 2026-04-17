@@ -97,6 +97,45 @@
     color-scheme: dark;
   }
 
+  html[data-theme="light"] {
+    color-scheme: light;
+  }
+
+  html[data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  /* Light UI — Claro-friendly neutrals */
+  html[data-theme="light"] {
+    --color-background: #fafafa;
+    --color-foreground: #171717;
+
+    --color-card: #ffffff;
+    --color-card-foreground: #171717;
+
+    --color-popover: #ffffff;
+    --color-popover-foreground: #171717;
+
+    --color-primary: #171717;
+    --color-primary-foreground: #fafafa;
+
+    --color-secondary: #f4f4f5;
+    --color-secondary-foreground: #18181b;
+
+    --color-muted: #f4f4f5;
+    --color-muted-foreground: #71717a;
+
+    --color-accent: #f4f4f5;
+    --color-accent-foreground: #18181b;
+
+    --color-destructive: #fef2f2;
+    --color-destructive-foreground: #991b1b;
+
+    --color-border: #e4e4e7;
+    --color-input: #e4e4e7;
+    --color-ring: #a1a1aa;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
@@ -109,8 +148,12 @@
     font: inherit;
   }
 
-  ::selection {
+  html[data-theme="dark"] ::selection {
     background: rgb(168 162 158 / 26%);
+  }
+
+  html[data-theme="light"] ::selection {
+    background: rgb(24 24 27 / 12%);
   }
 }
 
