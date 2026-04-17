@@ -53,7 +53,7 @@ import {
   claroMermaidFont,
   getClaroMermaidColors,
 } from '@/lib/claro-mermaid-theme'
-import { polishClaroSubgraphCorners } from '@/lib/claro-svg-polish'
+import { polishClaroSvgCorners } from '@/lib/claro-svg-polish'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import { useAppTheme } from '@/components/theme-provider'
@@ -468,7 +468,7 @@ export function MermaidDashboard() {
           },
         )
         if (state.theme === 'claro' && isFlowchartHeader(debouncedCode)) {
-          svg = polishClaroSubgraphCorners(svg)
+          svg = polishClaroSvgCorners(svg)
         }
 
         renderCacheRef.current.set(activeGraph.id, svg)
