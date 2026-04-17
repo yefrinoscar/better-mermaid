@@ -5,12 +5,15 @@ import {
   Copy,
   Download,
   Expand,
+  Monitor,
+  Moon,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Settings2,
   Sparkles,
+  Sun,
   Trash2,
 } from 'lucide-react'
 import {
@@ -40,8 +43,20 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import {
+  DEFAULT_DIAGRAM_THEME,
+  readPreferences,
+  writePreferences,
+} from '@/lib/app-preferences'
+import {
+  buildClaroFlowchartSource,
+  claroMermaidFont,
+  getClaroMermaidColors,
+} from '@/lib/claro-mermaid-theme'
+import { polishClaroSvgCorners } from '@/lib/claro-svg-polish'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { useAppTheme } from '@/components/theme-provider'
 
 interface GraphDocument {
   id: string
@@ -54,6 +69,7 @@ interface AppState {
   activeGraphId: string
   codeFontSize: number
   theme: string
+  defaultDiagramTheme: string
   transparent: boolean
   graphs: GraphDocument[]
 }
@@ -87,13 +103,14 @@ type MermaidModule = typeof import('beautiful-mermaid')
 
 const STORAGE_KEY = 'better-mermaid-next:v3'
 const DEFAULT_CODE_FONT_SIZE = 16
-const DEFAULT_THEME = 'github-dark'
+const DEFAULT_THEME = DEFAULT_DIAGRAM_THEME
 const DEFAULT_CODE = `graph TD
   Start[Start] --> Draft[Edit Mermaid]
   Draft --> Render[Render preview]
   Render --> Share[Export SVG]
 `
 const THEME_NAMES = [
+  'claro',
   'catppuccin-latte',
   'catppuccin-mocha',
   'dracula',
@@ -111,12 +128,7 @@ const THEME_NAMES = [
   'zinc-light',
 ]
 const fallbackColors: DiagramColors = {
-  accent: '#8ab4ff',
-  bg: '#0d1117',
-  border: '#273142',
-  fg: '#e6edf3',
-  line: '#273142',
-  surface: '#11161d',
+  ...getClaroMermaidColors('dark'),
 }
 const themeNames = [...THEME_NAMES].sort((left, right) =>
   formatThemeName(left).localeCompare(formatThemeName(right)),
@@ -124,7 +136,19 @@ const themeNames = [...THEME_NAMES].sort((left, right) =>
 
 let mermaidModulePromise: Promise<MermaidModule> | null = null
 
+function isFlowchartHeader(code: string): boolean {
+  const first = code
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.length > 0 && !l.startsWith('%%'))
+  if (!first) {
+    return false
+  }
+  return /^(graph|flowchart)\s+(TD|TB|LR|BT|RL)\b/i.test(first)
+}
+
 export function MermaidDashboard() {
+  const { resolvedTheme, setUiTheme, uiTheme } = useAppTheme()
   const [state, setState] = useState<AppState>(createDefaultState)
   const [isHydrated, setIsHydrated] = useState(false)
   const [isAuthReady, setIsAuthReady] = useState(false)
@@ -163,16 +187,28 @@ export function MermaidDashboard() {
 
   const activeGraph = useMemo(() => getActiveGraph(state), [state])
   const debouncedCode = useDebouncedValue(activeGraph.code, 120)
+  const claroUiVariant = resolvedTheme === 'light' ? 'light' : 'dark'
+  const debouncedCodeForRender = useMemo(() => {
+    if (state.theme !== 'claro' || !isFlowchartHeader(debouncedCode)) {
+      return debouncedCode
+    }
+    return buildClaroFlowchartSource(debouncedCode, claroUiVariant)
+  }, [claroUiVariant, debouncedCode, state.theme])
   const previewStyle = useMemo(
     () =>
       ({
         '--diagram-accent': renderState.colors.accent ?? renderState.colors.line ?? renderState.colors.fg,
-        '--diagram-bg': renderState.colors.bg,
+        '--diagram-bg':
+          state.theme === 'claro'
+            ? resolvedTheme === 'dark'
+              ? '#0c0c0c'
+              : 'transparent'
+            : renderState.colors.bg,
         '--diagram-ink': renderState.colors.fg,
         '--diagram-line': renderState.colors.border ?? renderState.colors.line ?? renderState.colors.fg,
         '--diagram-surface': renderState.colors.surface ?? renderState.colors.bg,
       }) as CSSProperties,
-    [renderState.colors],
+    [renderState.colors, resolvedTheme, state.theme],
   )
 
   useEffect(() => {
@@ -226,7 +262,13 @@ export function MermaidDashboard() {
           const remoteState = await readRemoteState()
 
           if (remoteState) {
-            setState(remoteState)
+            const prefs = readPreferences()
+            setState({
+              ...remoteState,
+              defaultDiagramTheme: THEME_NAMES.includes(prefs.defaultDiagramTheme)
+                ? prefs.defaultDiagramTheme
+                : DEFAULT_THEME,
+            })
           }
           setIsRemoteReady(true)
         } else {
@@ -267,7 +309,13 @@ export function MermaidDashboard() {
       const remoteState = await readRemoteState()
 
       if (remoteState) {
-        setState(remoteState)
+        const prefs = readPreferences()
+        setState({
+          ...remoteState,
+          defaultDiagramTheme: THEME_NAMES.includes(prefs.defaultDiagramTheme)
+            ? prefs.defaultDiagramTheme
+            : DEFAULT_THEME,
+        })
       }
 
       setIsRemoteReady(true)
@@ -400,16 +448,25 @@ export function MermaidDashboard() {
           return
         }
 
-        const colors = mermaid.THEMES[state.theme] ?? mermaid.THEMES[DEFAULT_THEME]
-        const svg = mermaid.renderMermaidSVG(debouncedCode, {
-          ...colors,
-          font: 'Sora, sans-serif',
-          interactive: true,
-          layerSpacing: 40,
-          nodeSpacing: 24,
-          padding: 40,
-          transparent: state.transparent,
-        })
+        const colors =
+          state.theme === 'claro'
+            ? getClaroMermaidColors(claroUiVariant)
+            : (mermaid.THEMES[state.theme] ?? mermaid.THEMES['github-dark'])
+        let svg = mermaid.renderMermaidSVG(
+          state.theme === 'claro' ? debouncedCodeForRender : debouncedCode,
+          {
+            ...colors,
+            font: state.theme === 'claro' ? `${claroMermaidFont}, sans-serif` : 'Sora, sans-serif',
+            interactive: true,
+            layerSpacing: 40,
+            nodeSpacing: 24,
+            padding: 40,
+            transparent: state.theme === 'claro' ? true : state.transparent,
+          },
+        )
+        if (state.theme === 'claro' && isFlowchartHeader(debouncedCode)) {
+          svg = polishClaroSvgCorners(svg)
+        }
 
         renderCacheRef.current.set(activeGraph.id, svg)
 
@@ -447,7 +504,14 @@ export function MermaidDashboard() {
         }))
       }
     })()
-  }, [activeGraph.id, debouncedCode, state.theme, state.transparent])
+  }, [
+    activeGraph.id,
+    claroUiVariant,
+    debouncedCode,
+    debouncedCodeForRender,
+    state.theme,
+    state.transparent,
+  ])
 
   async function handleCopy() {
     if (!renderState.canExport || !renderState.svg) {
@@ -590,7 +654,7 @@ export function MermaidDashboard() {
   }
 
   function useDefaults() {
-    setState(createDefaultState())
+    setState(createDefaultState(readPreferences().defaultDiagramTheme))
     setIsConfigOpen(false)
   }
 
@@ -737,7 +801,7 @@ export function MermaidDashboard() {
                 className={cn(
                   'flex items-center gap-1 rounded-md border p-1 transition-colors',
                   graph.id === activeGraph.id
-                    ? 'border-white/10 bg-white text-black'
+                    ? 'border-primary/25 bg-primary text-primary-foreground'
                     : 'border-border bg-secondary text-foreground',
                 )}
                 key={graph.id}
@@ -761,7 +825,7 @@ export function MermaidDashboard() {
                       className={cn(
                         'size-7 px-0',
                         graph.id === activeGraph.id
-                          ? 'border-black/10 bg-black/5 text-black hover:bg-black/10'
+                          ? 'border-primary-foreground/15 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/15'
                           : 'border-transparent bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                       )}
                       size="icon"
@@ -838,6 +902,36 @@ export function MermaidDashboard() {
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <div className="mr-0.5 hidden items-center rounded-md border border-border p-0.5 sm:flex">
+                <Button
+                  aria-label="Light UI"
+                  className={cn('size-7 px-0', uiTheme === 'light' && 'bg-accent text-accent-foreground')}
+                  onClick={() => setUiTheme('light')}
+                  size="icon"
+                  variant="ghost"
+                >
+                  <Sun className="size-3.5" />
+                </Button>
+                <Button
+                  aria-label="Dark UI"
+                  className={cn('size-7 px-0', uiTheme === 'dark' && 'bg-accent text-accent-foreground')}
+                  onClick={() => setUiTheme('dark')}
+                  size="icon"
+                  variant="ghost"
+                >
+                  <Moon className="size-3.5" />
+                </Button>
+                <Button
+                  aria-label="Match system theme"
+                  className={cn('size-7 px-0', uiTheme === 'system' && 'bg-accent text-accent-foreground')}
+                  onClick={() => setUiTheme('system')}
+                  size="icon"
+                  variant="ghost"
+                >
+                  <Monitor className="size-3.5" />
+                </Button>
+              </div>
+
               <Button onClick={() => setIsConfigOpen(true)} size="sm" variant="ghost">
                 <Settings2 className="size-3.5" />
                 Config
@@ -880,13 +974,23 @@ export function MermaidDashboard() {
                 <MermaidCodeEditor
                   fontSize={state.codeFontSize}
                   onChange={handleCodeChange}
+                  uiVariant={resolvedTheme}
                   value={activeGraph.code}
                 />
               )}
             </div>
 
             <div
-              className="preview-frame min-h-0 overflow-hidden rounded-lg border border-border bg-[linear-gradient(180deg,#090b0f,#07080b)]"
+              className={cn(
+                'preview-frame min-h-0 overflow-hidden rounded-lg border border-border',
+                state.theme === 'claro'
+                  ? resolvedTheme === 'dark'
+                    ? 'bg-[#0c0c0c]'
+                    : 'bg-transparent'
+                  : resolvedTheme === 'light'
+                    ? 'bg-[linear-gradient(180deg,#f4f4f5,#fafafa)]'
+                    : 'bg-[linear-gradient(180deg,#090b0f,#07080b)]',
+              )}
               ref={previewRef}
               style={previewStyle}
             >
@@ -895,7 +999,7 @@ export function MermaidDashboard() {
                   <GraphPreviewSkeleton />
                 ) : renderState.svg ? (
                   <div
-                    className="grid min-h-full min-w-full place-items-center [&_svg]:block [&_svg]:h-auto [&_svg]:max-w-none"
+                    className="mermaid-diagram-svg grid min-h-full min-w-full place-items-center [&_svg]:block [&_svg]:h-auto [&_svg]:max-w-none"
                     dangerouslySetInnerHTML={{ __html: renderState.svg }}
                   />
                 ) : (
@@ -924,6 +1028,26 @@ export function MermaidDashboard() {
               </DialogHeader>
 
               <div className="mt-5 space-y-4">
+                <div className="space-y-2 sm:hidden">
+                  <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                    App appearance
+                  </label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-secondary px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                    onChange={(event) => {
+                      const v = event.target.value
+                      if (v === 'light' || v === 'dark' || v === 'system') {
+                        setUiTheme(v)
+                      }
+                    }}
+                    value={uiTheme}
+                  >
+                    <option value="system">System</option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                  </select>
+                </div>
+
                 <div className="space-y-2">
                   <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                     Graph name
@@ -947,6 +1071,38 @@ export function MermaidDashboard() {
                       }))
                     }
                     value={state.theme}
+                  >
+                    {themeNames.map((theme) => (
+                      <option key={theme} value={theme}>
+                        {formatThemeName(theme)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                    Default Mermaid theme
+                  </label>
+                  <p className="text-[11px] leading-4 text-muted-foreground">
+                    Used for new sessions and when you click “Use defaults”.
+                  </p>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-secondary px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                    onChange={(event) => {
+                      const next =
+                        THEME_NAMES.includes(event.target.value) ? event.target.value : DEFAULT_THEME
+                      writePreferences({ defaultDiagramTheme: next })
+                      setState((current) => ({
+                        ...current,
+                        defaultDiagramTheme: next,
+                      }))
+                    }}
+                    value={
+                      THEME_NAMES.includes(state.defaultDiagramTheme)
+                        ? state.defaultDiagramTheme
+                        : DEFAULT_THEME
+                    }
                   >
                     {themeNames.map((theme) => (
                       <option key={theme} value={theme}>
@@ -1195,12 +1351,12 @@ function GraphListSkeleton() {
 
 function CodePanelSkeleton() {
   return (
-    <div className="h-full w-full bg-[#040507] p-3 font-mono text-[11px]">
+    <div className="h-full w-full bg-secondary p-3 font-mono text-[11px]">
       <div className="h-full space-y-2">
         {Array.from({ length: 16 }).map((_, index) => (
           <div className="animate-pulse" key={index}>
             <div
-              className="h-3 rounded bg-zinc-800/80"
+              className="h-3 rounded bg-muted"
               style={{ width: `${88 - (index % 5) * 11}%` }}
             />
           </div>
@@ -1213,21 +1369,23 @@ function CodePanelSkeleton() {
 function GraphPreviewSkeleton() {
   return (
     <div className="grid min-h-full min-w-full place-items-stretch">
-      <div className="h-full w-full space-y-3 rounded-lg border border-border/70 bg-black/25 p-4">
-        <div className="h-4 w-44 animate-pulse rounded bg-zinc-700/70" />
+      <div className="h-full w-full space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+        <div className="h-4 w-44 animate-pulse rounded bg-muted" />
         <div className="grid gap-3 md:grid-cols-4">
           {Array.from({ length: 12 }).map((_, index) => (
-            <div className="h-16 animate-pulse rounded border border-border/60 bg-zinc-800/50" key={index} />
+            <div className="h-16 animate-pulse rounded border border-border bg-secondary" key={index} />
           ))}
         </div>
-        <div className="h-3 w-3/5 animate-pulse rounded bg-zinc-700/70" />
+        <div className="h-3 w-3/5 animate-pulse rounded bg-muted" />
       </div>
     </div>
   )
 }
 
 function ChevronHint({ active }: { active: boolean }) {
-  return <span className={cn('text-[10px]', active ? 'text-black/60' : 'text-muted-foreground')}>›</span>
+  return (
+    <span className={cn('text-[10px]', active ? 'text-primary-foreground/70' : 'text-muted-foreground')}>›</span>
+  )
 }
 
 function useDebouncedValue<T>(value: T, delay: number) {
@@ -1290,6 +1448,14 @@ function loadSavedState(): AppState {
         .filter((graph): graph is GraphDocument => graph !== null)
 
       if (graphs.length > 0) {
+        const prefs = readPreferences()
+        const savedDefault =
+          typeof (parsed as Partial<AppState>).defaultDiagramTheme === 'string' &&
+          THEME_NAMES.includes((parsed as Partial<AppState>).defaultDiagramTheme as string)
+            ? ((parsed as Partial<AppState>).defaultDiagramTheme as string)
+            : THEME_NAMES.includes(prefs.defaultDiagramTheme)
+              ? prefs.defaultDiagramTheme
+              : DEFAULT_THEME
         return {
           activeGraphId: graphs.some((graph) => graph.id === parsed.activeGraphId)
             ? (parsed.activeGraphId as string)
@@ -1298,6 +1464,7 @@ function loadSavedState(): AppState {
             typeof parsed.codeFontSize === 'number' && parsed.codeFontSize >= 12 && parsed.codeFontSize <= 28
               ? parsed.codeFontSize
               : DEFAULT_CODE_FONT_SIZE,
+          defaultDiagramTheme: savedDefault,
           graphs,
           theme:
             typeof parsed.theme === 'string' && THEME_NAMES.includes(parsed.theme)
@@ -1314,12 +1481,16 @@ function loadSavedState(): AppState {
         .map((code, index) => createGraph(`Graph ${index + 1}`, code))
 
       if (migratedGraphs.length > 0) {
+        const prefs = readPreferences()
         return {
           activeGraphId: migratedGraphs[0].id,
           codeFontSize:
             typeof parsed.codeFontSize === 'number' && parsed.codeFontSize >= 12 && parsed.codeFontSize <= 28
               ? parsed.codeFontSize
               : DEFAULT_CODE_FONT_SIZE,
+          defaultDiagramTheme: THEME_NAMES.includes(prefs.defaultDiagramTheme)
+            ? prefs.defaultDiagramTheme
+            : DEFAULT_THEME,
           graphs: migratedGraphs,
           theme:
             typeof parsed.theme === 'string' && THEME_NAMES.includes(parsed.theme)
@@ -1336,14 +1507,16 @@ function loadSavedState(): AppState {
   }
 }
 
-function createDefaultState(): AppState {
+function createDefaultState(diagramTheme: string = readPreferences().defaultDiagramTheme): AppState {
   const graph = createGraph('Graph 1', presets[0]?.code ?? DEFAULT_CODE, presets[0]?.id ?? null)
+  const theme = THEME_NAMES.includes(diagramTheme) ? diagramTheme : DEFAULT_THEME
 
   return {
     activeGraphId: graph.id,
     codeFontSize: DEFAULT_CODE_FONT_SIZE,
+    defaultDiagramTheme: theme,
     graphs: [graph],
-    theme: DEFAULT_THEME,
+    theme,
     transparent: false,
   }
 }
@@ -1414,9 +1587,13 @@ async function readRemoteState(): Promise<AppState | null> {
       return null
     }
 
+    const prefs = readPreferences()
     return {
       activeGraphId: body.state.activeGraphId,
       codeFontSize: clampCodeFontSize(body.state.codeFontSize),
+      defaultDiagramTheme: THEME_NAMES.includes(prefs.defaultDiagramTheme)
+        ? prefs.defaultDiagramTheme
+        : DEFAULT_THEME,
       graphs: body.state.graphs,
       theme: THEME_NAMES.includes(body.state.theme) ? body.state.theme : DEFAULT_THEME,
       transparent: body.state.transparent,
@@ -1428,8 +1605,9 @@ async function readRemoteState(): Promise<AppState | null> {
 
 async function writeRemoteState(state: AppState, options?: { keepalive?: boolean }) {
   try {
+    const { defaultDiagramTheme: _omit, ...apiPayload } = state
     const response = await fetch('/api/graphs', {
-      body: JSON.stringify(state),
+      body: JSON.stringify(apiPayload),
       headers: {
         'content-type': 'application/json',
       },
