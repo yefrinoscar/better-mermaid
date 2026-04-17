@@ -18,19 +18,19 @@ export const presets: DiagramPreset[] = [
     description:
       'Slide 1:61 del Figma Claro-graphs (MCP actualizado): título, viñetas, Red Interna + Exterior, variantes de caja y enlace threescale.',
     code: `flowchart TB
-  H1["FLUJO 1: Microfront depende de la shell"]:::slideTitle
-  BUL["• La URL de la Api este en el token de sesión<br/>• Toma el token del contexto (De la shell que la este ejecutando)"]:::slideBullets
+  H1("FLUJO 1: Microfront depende de la shell"):::slideTitle
+  BUL("• La URL de la Api este en el token de sesión<br/>• Toma el token del contexto — de la shell que la este ejecutando"):::slideBullets
 
   subgraph RedInterna["Red Interna"]
     direction TB
-    RHINT["• realm: realm X<br/>• ClientId: shell"]:::realmHint
-    RealmX["Realm X"]
-    ShellX["Shell X"]:::redSolid
-    APIx["API"]:::redSolid
-    MF2["MF2"]:::redDashed
-    MF1["MF1"]:::redDashed
-    HTTPx["@claro/http"]:::chip
-    AUTHx["@claro/auth"]:::chip
+    RHINT("• realm: realm X<br/>• ClientId: shell"):::realmHint
+    RealmX("Realm X")
+    ShellX("Shell X"):::redSolid
+    APIx("API"):::redSolid
+    MF2("MF2"):::redDashed
+    MF1("MF1"):::redDashed
+    HTTPx("@claro/http"):::chip
+    AUTHx("@claro/auth"):::chip
     RHINT ~~~ RealmX
     RealmX --> ShellX
     RealmX --> APIx
@@ -44,11 +44,11 @@ export const presets: DiagramPreset[] = [
 
   subgraph Exterior["Exterior"]
     direction TB
-    RealmY["Realm Y"]
-    ShellY["Shell Y"]:::redSolid
-    APIy["API"]:::redSolid
-    MF3["MF3"]:::redDashed
-    HTTPy["@claro/http"]:::chip
+    RealmY("Realm Y")
+    ShellY("Shell Y"):::redSolid
+    APIy("API"):::redSolid
+    MF3("MF3"):::redDashed
+    HTTPy("@claro/http"):::chip
     RealmY --> ShellY
     RealmY --> APIy
     ShellY -->|JWT Shell| MF3
@@ -56,14 +56,14 @@ export const presets: DiagramPreset[] = [
     HTTPy -.-> MF3
   end
 
-  TS["threescale.claro.com/?type=1"]:::linkNote
+  TS("threescale.claro.com/?type=1"):::linkNote
   ShellX -.-> TS
   TS -.-> ShellY
 
   H1 --> BUL
   BUL --> RedInterna
 
-  class RedInterna,Exterior group;
+  class RedInterna,Exterior group
 
 ${CLARO_CLASSDEFS}
 `,
@@ -75,24 +75,24 @@ ${CLARO_CLASSDEFS}
     description:
       'Todas las variantes de caja del Figma + estilos de texto del slide (título 36px, viñetas 16px, JWT/realm 14px bold, chip 16px).',
     code: `flowchart TB
-  H1["FLUJO 1: (slide title 36px bold)"]:::slideTitle
-  BUL["• Bullet list 16px medium (nodo 4:68)"]:::slideBullets
-  JWT["JWT Shell (14px bold, #999)"]:::realmHint
+  H1("FLUJO 1: (slide title 36px bold)"):::slideTitle
+  BUL("• Bullet list 16px medium (nodo 4:68)"):::slideBullets
+  JWT("JWT Shell (14px bold, #999)"):::realmHint
 
   subgraph GroupExample["Group label 20px #999 (Red Interna / Exterior)"]
-    Inside["Realm default: white + #202020 2px"]
+    Inside("Realm default: rounded + #202020 2px")
   end
 
-  Default["Default (Realm)"]
-  RedSolid["Shell / API"]:::redSolid
-  RedDashed["MF dashed"]:::redDashed
-  Chip["@claro/http chip"]:::chip
-  Link["threescale… 16px"]:::linkNote
+  Default("Default (Realm)")
+  RedSolid("Shell / API"):::redSolid
+  RedDashed("MF dashed"):::redDashed
+  Chip("@claro/http chip"):::chip
+  Link("threescale… 16px"):::linkNote
 
   H1 --> BUL --> JWT
   Default --> RedSolid --> RedDashed --> Chip --> Link --> GroupExample
 
-  class GroupExample group;
+  class GroupExample group
 
 ${CLARO_CLASSDEFS}
 `,

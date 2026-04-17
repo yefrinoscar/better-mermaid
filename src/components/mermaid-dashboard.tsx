@@ -164,12 +164,13 @@ export function MermaidDashboard() {
     () =>
       ({
         '--diagram-accent': renderState.colors.accent ?? renderState.colors.line ?? renderState.colors.fg,
-        '--diagram-bg': renderState.colors.bg,
+        '--diagram-bg':
+          state.theme === 'claro' ? 'transparent' : renderState.colors.bg,
         '--diagram-ink': renderState.colors.fg,
         '--diagram-line': renderState.colors.border ?? renderState.colors.line ?? renderState.colors.fg,
         '--diagram-surface': renderState.colors.surface ?? renderState.colors.bg,
       }) as CSSProperties,
-    [renderState.colors],
+    [renderState.colors, state.theme],
   )
 
   useEffect(() => {
@@ -408,7 +409,7 @@ export function MermaidDashboard() {
           layerSpacing: 40,
           nodeSpacing: 24,
           padding: 40,
-          transparent: state.transparent,
+          transparent: state.theme === 'claro' ? true : state.transparent,
         })
 
         renderCacheRef.current.set(activeGraph.id, svg)
@@ -889,7 +890,7 @@ export function MermaidDashboard() {
               className={cn(
                 'preview-frame min-h-0 overflow-hidden rounded-lg border border-border',
                 state.theme === 'claro'
-                  ? 'bg-[linear-gradient(180deg,#f8f8f8,#ffffff)]'
+                  ? 'bg-transparent'
                   : 'bg-[linear-gradient(180deg,#090b0f,#07080b)]',
               )}
               ref={previewRef}
@@ -900,7 +901,7 @@ export function MermaidDashboard() {
                   <GraphPreviewSkeleton />
                 ) : renderState.svg ? (
                   <div
-                    className="grid min-h-full min-w-full place-items-center [&_svg]:block [&_svg]:h-auto [&_svg]:max-w-none"
+                    className="mermaid-diagram-svg grid min-h-full min-w-full place-items-center [&_svg]:block [&_svg]:h-auto [&_svg]:max-w-none"
                     dangerouslySetInnerHTML={{ __html: renderState.svg }}
                   />
                 ) : (

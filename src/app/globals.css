@@ -115,6 +115,11 @@
 }
 
 @layer components {
+  .mermaid-diagram-svg svg {
+    shape-rendering: geometricPrecision;
+    text-rendering: geometricPrecision;
+  }
+
   .preview-frame:fullscreen {
     border-radius: 0;
   }
