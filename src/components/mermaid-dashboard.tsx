@@ -199,11 +199,7 @@ export function MermaidDashboard() {
       ({
         '--diagram-accent': renderState.colors.accent ?? renderState.colors.line ?? renderState.colors.fg,
         '--diagram-bg':
-          state.theme === 'claro'
-            ? resolvedTheme === 'dark'
-              ? '#0c0c0c'
-              : 'transparent'
-            : renderState.colors.bg,
+          state.theme === 'claro' ? 'transparent' : renderState.colors.bg,
         '--diagram-ink': renderState.colors.fg,
         '--diagram-line': renderState.colors.border ?? renderState.colors.line ?? renderState.colors.fg,
         '--diagram-surface': renderState.colors.surface ?? renderState.colors.bg,
@@ -989,9 +985,7 @@ export function MermaidDashboard() {
               className={cn(
                 'preview-frame min-h-0 overflow-hidden rounded-lg border border-border',
                 state.theme === 'claro'
-                  ? resolvedTheme === 'dark'
-                    ? 'bg-[#0c0c0c]'
-                    : 'bg-transparent'
+                  ? 'bg-transparent'
                   : resolvedTheme === 'light'
                     ? 'bg-[linear-gradient(180deg,#f4f4f5,#fafafa)]'
                     : 'bg-[linear-gradient(180deg,#090b0f,#07080b)]',
