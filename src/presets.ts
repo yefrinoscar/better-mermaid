@@ -1,5 +1,3 @@
-import { CLARO_CLASSDEFS } from '@/lib/claro-mermaid-theme'
-
 export interface DiagramPreset {
   id: string
   label: string
@@ -64,8 +62,6 @@ export const presets: DiagramPreset[] = [
   BUL --> RedInterna
 
   class RedInterna,Exterior group
-
-${CLARO_CLASSDEFS}
 `,
   },
   {
@@ -93,8 +89,6 @@ ${CLARO_CLASSDEFS}
   Default --> RedSolid --> RedDashed --> Chip --> Link --> GroupExample
 
   class GroupExample group
-
-${CLARO_CLASSDEFS}
 `,
   },
   {
