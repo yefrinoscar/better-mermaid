@@ -10,6 +10,34 @@ export const defaultPresetId = 'flow'
 
 export const presets: DiagramPreset[] = [
   {
+    id: 'claro-flujo-1',
+    label: 'Claro — Flujo 1',
+    kind: 'Flowchart',
+    description:
+      'Shell / Microfront architecture from the Claro-graphs Figma, using the red-solid, red-dashed and chip box variants.',
+    code: `flowchart TB
+  subgraph RedInterna["Red Interna"]
+    RealmX["Realm X"]
+    ShellX["Shell X"]:::redSolid
+    API["API"]:::redSolid
+    MF2["MF2"]:::redDashed
+    MF1["MF1"]:::redDashed
+    http["@claro/http"]:::chip
+    auth["@claro/auth"]:::chip
+    RealmX --> ShellX
+    RealmX --> API
+    ShellX --> MF2
+    ShellX --> MF1
+    API --> http
+    MF1 --> auth
+  end
+
+  classDef redSolid fill:#fde1e1,stroke:#ed1818,stroke-width:2px,color:#a70808;
+  classDef redDashed fill:#ffffff,stroke:#ed1818,stroke-width:2px,stroke-dasharray:6 4,color:#ed1818;
+  classDef chip fill:#ebebeb,stroke:#202020,stroke-width:2px,color:#202020;
+`,
+  },
+  {
     id: 'flow',
     label: 'Launch Flow',
     kind: 'Flowchart',
