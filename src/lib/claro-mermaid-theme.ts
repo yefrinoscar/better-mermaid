@@ -1,5 +1,12 @@
 import type { DiagramColors } from 'beautiful-mermaid'
 
+/**
+ * Claro diagram theme — adapts to app UI:
+ * - `getClaroMermaidColors('light' | 'dark')` for canvas + strokes
+ * - `getClaroClassDefsBlock` for flowchart classDef (reds / chips) when injected via `buildClaroFlowchartSource`
+ * Flowcharts only: other diagram types still get light/dark `DiagramColors` + rounded `rect` polish in the dashboard.
+ */
+
 export const claroMermaidThemeLight: DiagramColors = {
   accent: '#202020',
   bg: '#ffffff',

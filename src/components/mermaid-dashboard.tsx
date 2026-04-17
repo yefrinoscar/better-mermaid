@@ -464,7 +464,7 @@ export function MermaidDashboard() {
             transparent: state.theme === 'claro' ? true : state.transparent,
           },
         )
-        if (state.theme === 'claro' && isFlowchartHeader(debouncedCode)) {
+        if (state.theme === 'claro') {
           svg = polishClaroSvgCorners(svg)
         }
 
@@ -478,7 +478,12 @@ export function MermaidDashboard() {
           canExport: true,
           colors,
           error: '',
-          previewNote: buildPreviewNote(activeGraph, state.theme, state.transparent),
+          previewNote: buildPreviewNote(
+            activeGraph,
+            state.theme,
+            state.transparent,
+            state.theme === 'claro' ? claroUiVariant : undefined,
+          ),
           renderTime: formatDuration(performance.now() - startedAt),
           status: 'good',
           svg,
@@ -1078,6 +1083,13 @@ export function MermaidDashboard() {
                       </option>
                     ))}
                   </select>
+                  {state.theme === 'claro' ? (
+                    <p className="text-[11px] leading-4 text-muted-foreground">
+                      Claro follows your app theme: <strong className="text-foreground">light</strong> or{' '}
+                      <strong className="text-foreground">dark</strong> canvas, contrasting reds, and rounded box
+                      corners (also in sequence/class diagrams).
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">
@@ -1540,8 +1552,17 @@ function countLines(code: string) {
   return code.length === 0 ? 0 : code.split(/\r?\n/).length
 }
 
-function buildPreviewNote(graph: GraphDocument, theme: string, transparent: boolean) {
-  return `${graph.title} rendered with ${formatThemeName(theme)}${transparent ? ' and transparent export on' : ''}.`
+function buildPreviewNote(
+  graph: GraphDocument,
+  theme: string,
+  transparent: boolean,
+  claroUiVariant?: 'light' | 'dark',
+) {
+  const claroHint =
+    theme === 'claro' && claroUiVariant
+      ? ` (${claroUiVariant === 'dark' ? 'dark' : 'light'} canvas, rounded boxes)`
+      : ''
+  return `${graph.title} rendered with ${formatThemeName(theme)}${claroHint}${transparent ? ' and transparent export on' : ''}.`
 }
 
 function formatDuration(duration: number) {
