@@ -29,10 +29,8 @@ export default function RootLayout({
   children: ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${sora.variable} ${ibmPlexMono.variable}`} suppressHydrationWarning>
-        {children}
-      </body>
+    <html lang="en">
+      <body className={`${sora.variable} ${ibmPlexMono.variable}`}>{children}</body>
     </html>
   )
 }
