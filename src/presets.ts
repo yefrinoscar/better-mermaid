@@ -1,3 +1,5 @@
+import { CLARO_CLASSDEFS } from '@/lib/claro-mermaid-theme'
+
 export interface DiagramPreset {
   id: string
   label: string
@@ -14,10 +16,14 @@ export const presets: DiagramPreset[] = [
     label: 'Claro — Flujo 1',
     kind: 'Flowchart',
     description:
-      'FLUJO 1 from the Claro-graphs Figma slide (node 1:61): Red Interna + Exterior groups with every box variant (default, red solid, red dashed, chip, group).',
+      'Slide 1:61 del Figma Claro-graphs (MCP actualizado): título, viñetas, Red Interna + Exterior, variantes de caja y enlace threescale.',
     code: `flowchart TB
+  H1["FLUJO 1: Microfront depende de la shell"]:::slideTitle
+  BUL["• La URL de la Api este en el token de sesión<br/>• Toma el token del contexto (De la shell que la este ejecutando)"]:::slideBullets
+
   subgraph RedInterna["Red Interna"]
     direction TB
+    RHINT["• realm: realm X<br/>• ClientId: shell"]:::realmHint
     RealmX["Realm X"]
     ShellX["Shell X"]:::redSolid
     APIx["API"]:::redSolid
@@ -25,6 +31,7 @@ export const presets: DiagramPreset[] = [
     MF1["MF1"]:::redDashed
     HTTPx["@claro/http"]:::chip
     AUTHx["@claro/auth"]:::chip
+    RHINT ~~~ RealmX
     RealmX --> ShellX
     RealmX --> APIx
     ShellX -->|JWT Shell| MF2
@@ -49,14 +56,16 @@ export const presets: DiagramPreset[] = [
     HTTPy -.-> MF3
   end
 
-  ShellX -. "threescale.claro.com/?type=1" .-> ShellY
+  TS["threescale.claro.com/?type=1"]:::linkNote
+  ShellX -.-> TS
+  TS -.-> ShellY
+
+  H1 --> BUL
+  BUL --> RedInterna
 
   class RedInterna,Exterior group;
 
-  classDef redSolid fill:#fde1e1,stroke:#ed1818,stroke-width:2px,color:#a70808;
-  classDef redDashed fill:#ffffff,stroke:#ed1818,stroke-width:2px,stroke-dasharray:6 4,color:#ed1818;
-  classDef chip fill:#ebebeb,stroke:#202020,stroke-width:2px,color:#202020;
-  classDef group fill:#ffffff,stroke:#999999,stroke-width:2px,color:#999999;
+${CLARO_CLASSDEFS}
 `,
   },
   {
@@ -64,25 +73,28 @@ export const presets: DiagramPreset[] = [
     label: 'Claro — Box variants',
     kind: 'Flowchart',
     description:
-      'Reference sheet showing every Claro box variant side-by-side: default, red-solid, red-dashed, chip and group.',
-    code: `flowchart LR
-  Default["Default<br/>(Realm)"]
-  RedSolid["Red solid<br/>(Shell / API)"]:::redSolid
-  RedDashed["Red dashed<br/>(MF1 / MF2 / MF3)"]:::redDashed
-  Chip["Chip<br/>(@claro/http)"]:::chip
+      'Todas las variantes de caja del Figma + estilos de texto del slide (título 36px, viñetas 16px, JWT/realm 14px bold, chip 16px).',
+    code: `flowchart TB
+  H1["FLUJO 1: (slide title 36px bold)"]:::slideTitle
+  BUL["• Bullet list 16px medium (nodo 4:68)"]:::slideBullets
+  JWT["JWT Shell (14px bold, #999)"]:::realmHint
 
-  subgraph GroupExample["Group (Red Interna / Exterior)"]
-    Inside["Default inside group"]
+  subgraph GroupExample["Group label 20px #999 (Red Interna / Exterior)"]
+    Inside["Realm default: white + #202020 2px"]
   end
 
-  Default --> RedSolid --> RedDashed --> Chip --> GroupExample
+  Default["Default (Realm)"]
+  RedSolid["Shell / API"]:::redSolid
+  RedDashed["MF dashed"]:::redDashed
+  Chip["@claro/http chip"]:::chip
+  Link["threescale… 16px"]:::linkNote
+
+  H1 --> BUL --> JWT
+  Default --> RedSolid --> RedDashed --> Chip --> Link --> GroupExample
 
   class GroupExample group;
 
-  classDef redSolid fill:#fde1e1,stroke:#ed1818,stroke-width:2px,color:#a70808;
-  classDef redDashed fill:#ffffff,stroke:#ed1818,stroke-width:2px,stroke-dasharray:6 4,color:#ed1818;
-  classDef chip fill:#ebebeb,stroke:#202020,stroke-width:2px,color:#202020;
-  classDef group fill:#ffffff,stroke:#999999,stroke-width:2px,color:#999999;
+${CLARO_CLASSDEFS}
 `,
   },
   {
