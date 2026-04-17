@@ -32,9 +32,17 @@ export const claroFillsLight = {
   grayChip: '#e0e0e0',
 } as const
 
+/** Dark UI: brighter reds so strokes and labels read on #141414 (Figma #ed1818 is too low-contrast here). */
 export const claroFillsDark = {
-  redTint: '#3d2224',
-  grayChip: '#262626',
+  redTint: '#4a252e',
+  grayChip: '#2e2e2e',
+} as const
+
+const claroRedDark = {
+  stroke: '#fb7185',
+  strokeStrong: '#f43f5e',
+  labelOnTint: '#ffe4e6',
+  labelDashed: '#fda4af',
 } as const
 
 function linkStyleLight() {
@@ -62,9 +70,18 @@ export function getClaroClassDefsBlock(variant: 'light' | 'dark'): string {
   const chipStroke = variant === 'dark' ? '#d4d4d8' : '#202020'
   const link = variant === 'dark' ? linkStyleDark() : linkStyleLight()
 
+  const redSolid =
+    variant === 'dark'
+      ? `fill:${f.redTint},stroke:${claroRedDark.strokeStrong},stroke-width:2px,color:${claroRedDark.labelOnTint},font-size:20px`
+      : `fill:${f.redTint},stroke:#ed1818,stroke-width:2px,color:#a70808,font-size:20px`
+  const redDashed =
+    variant === 'dark'
+      ? `fill:${bg},stroke:${claroRedDark.stroke},stroke-width:2px,stroke-dasharray:8 5,stroke-dashoffset:0,color:${claroRedDark.labelDashed},font-size:20px`
+      : `fill:${bg},stroke:#ed1818,stroke-width:2px,stroke-dasharray:8 5,stroke-dashoffset:0,color:#ed1818,font-size:20px`
+
   return `
-  classDef redSolid fill:${f.redTint},stroke:#ed1818,stroke-width:2px,color:#a70808,font-size:20px;
-  classDef redDashed fill:${bg},stroke:#ed1818,stroke-width:2px,stroke-dasharray:8 5,stroke-dashoffset:0,color:#ed1818,font-size:20px;
+  classDef redSolid ${redSolid};
+  classDef redDashed ${redDashed};
   classDef chip fill:${f.grayChip},stroke:${chipStroke},stroke-width:2px,color:${ink},font-size:16px;
   classDef group fill:${bg},stroke:${groupStroke},stroke-width:2px,color:${muted},font-size:20px;
   classDef slideTitle fill:${bg},stroke:${bg},color:${ink},font-weight:bold,font-size:36px;
