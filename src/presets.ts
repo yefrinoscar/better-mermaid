@@ -14,27 +14,75 @@ export const presets: DiagramPreset[] = [
     label: 'Claro — Flujo 1',
     kind: 'Flowchart',
     description:
-      'Shell / Microfront architecture from the Claro-graphs Figma, using the red-solid, red-dashed and chip box variants.',
+      'FLUJO 1 from the Claro-graphs Figma slide (node 1:61): Red Interna + Exterior groups with every box variant (default, red solid, red dashed, chip, group).',
     code: `flowchart TB
   subgraph RedInterna["Red Interna"]
+    direction TB
     RealmX["Realm X"]
     ShellX["Shell X"]:::redSolid
-    API["API"]:::redSolid
+    APIx["API"]:::redSolid
     MF2["MF2"]:::redDashed
     MF1["MF1"]:::redDashed
-    http["@claro/http"]:::chip
-    auth["@claro/auth"]:::chip
+    HTTPx["@claro/http"]:::chip
+    AUTHx["@claro/auth"]:::chip
     RealmX --> ShellX
-    RealmX --> API
-    ShellX --> MF2
-    ShellX --> MF1
-    API --> http
-    MF1 --> auth
+    RealmX --> APIx
+    ShellX -->|JWT Shell| MF2
+    ShellX -->|JWT Shell| MF1
+    APIx --> HTTPx
+    HTTPx -.-> MF1
+    HTTPx -.-> MF2
+    MF1 --> AUTHx
   end
+
+  subgraph Exterior["Exterior"]
+    direction TB
+    RealmY["Realm Y"]
+    ShellY["Shell Y"]:::redSolid
+    APIy["API"]:::redSolid
+    MF3["MF3"]:::redDashed
+    HTTPy["@claro/http"]:::chip
+    RealmY --> ShellY
+    RealmY --> APIy
+    ShellY -->|JWT Shell| MF3
+    APIy --> HTTPy
+    HTTPy -.-> MF3
+  end
+
+  ShellX -. "threescale.claro.com/?type=1" .-> ShellY
+
+  class RedInterna,Exterior group;
 
   classDef redSolid fill:#fde1e1,stroke:#ed1818,stroke-width:2px,color:#a70808;
   classDef redDashed fill:#ffffff,stroke:#ed1818,stroke-width:2px,stroke-dasharray:6 4,color:#ed1818;
   classDef chip fill:#ebebeb,stroke:#202020,stroke-width:2px,color:#202020;
+  classDef group fill:#ffffff,stroke:#999999,stroke-width:2px,color:#999999;
+`,
+  },
+  {
+    id: 'claro-variants',
+    label: 'Claro — Box variants',
+    kind: 'Flowchart',
+    description:
+      'Reference sheet showing every Claro box variant side-by-side: default, red-solid, red-dashed, chip and group.',
+    code: `flowchart LR
+  Default["Default<br/>(Realm)"]
+  RedSolid["Red solid<br/>(Shell / API)"]:::redSolid
+  RedDashed["Red dashed<br/>(MF1 / MF2 / MF3)"]:::redDashed
+  Chip["Chip<br/>(@claro/http)"]:::chip
+
+  subgraph GroupExample["Group (Red Interna / Exterior)"]
+    Inside["Default inside group"]
+  end
+
+  Default --> RedSolid --> RedDashed --> Chip --> GroupExample
+
+  class GroupExample group;
+
+  classDef redSolid fill:#fde1e1,stroke:#ed1818,stroke-width:2px,color:#a70808;
+  classDef redDashed fill:#ffffff,stroke:#ed1818,stroke-width:2px,stroke-dasharray:6 4,color:#ed1818;
+  classDef chip fill:#ebebeb,stroke:#202020,stroke-width:2px,color:#202020;
+  classDef group fill:#ffffff,stroke:#999999,stroke-width:2px,color:#999999;
 `,
   },
   {
