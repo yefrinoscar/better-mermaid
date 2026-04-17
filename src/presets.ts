@@ -10,6 +10,88 @@ export const defaultPresetId = 'flow'
 
 export const presets: DiagramPreset[] = [
   {
+    id: 'claro-flujo-1',
+    label: 'Claro — Flujo 1',
+    kind: 'Flowchart',
+    description:
+      'Slide 1:61 del Figma Claro-graphs (MCP actualizado): título, viñetas, Red Interna + Exterior, variantes de caja y enlace threescale.',
+    code: `flowchart TB
+  H1("FLUJO 1: Microfront depende de la shell"):::slideTitle
+  BUL("• La URL de la Api este en el token de sesión<br/>• Toma el token del contexto — de la shell que la este ejecutando"):::slideBullets
+
+  subgraph RedInterna["Red Interna"]
+    direction TB
+    RHINT("• realm: realm X<br/>• ClientId: shell"):::realmHint
+    RealmX("Realm X")
+    ShellX("Shell X"):::redSolid
+    APIx("API"):::redSolid
+    MF2("MF2"):::redDashed
+    MF1("MF1"):::redDashed
+    HTTPx("@claro/http"):::chip
+    AUTHx("@claro/auth"):::chip
+    RHINT ~~~ RealmX
+    RealmX --> ShellX
+    RealmX --> APIx
+    ShellX -->|JWT Shell| MF2
+    ShellX -->|JWT Shell| MF1
+    APIx --> HTTPx
+    HTTPx -.-> MF1
+    HTTPx -.-> MF2
+    MF1 --> AUTHx
+  end
+
+  subgraph Exterior["Exterior"]
+    direction TB
+    RealmY("Realm Y")
+    ShellY("Shell Y"):::redSolid
+    APIy("API"):::redSolid
+    MF3("MF3"):::redDashed
+    HTTPy("@claro/http"):::chip
+    RealmY --> ShellY
+    RealmY --> APIy
+    ShellY -->|JWT Shell| MF3
+    APIy --> HTTPy
+    HTTPy -.-> MF3
+  end
+
+  TS("threescale.claro.com/?type=1"):::linkNote
+  ShellX -.-> TS
+  TS -.-> ShellY
+
+  H1 --> BUL
+  BUL --> RedInterna
+
+  class RedInterna,Exterior group
+`,
+  },
+  {
+    id: 'claro-variants',
+    label: 'Claro — Box variants',
+    kind: 'Flowchart',
+    description:
+      'Todas las variantes de caja del Figma + estilos de texto del slide (título 36px, viñetas 16px, JWT/realm 14px bold, chip 16px).',
+    code: `flowchart TB
+  H1("FLUJO 1: (slide title 36px bold)"):::slideTitle
+  BUL("• Bullet list 16px medium (nodo 4:68)"):::slideBullets
+  JWT("JWT Shell (14px bold, #999)"):::realmHint
+
+  subgraph GroupExample["Group label 20px #999 (Red Interna / Exterior)"]
+    Inside("Realm default: rounded + #202020 2px")
+  end
+
+  Default("Default (Realm)")
+  RedSolid("Shell / API"):::redSolid
+  RedDashed("MF dashed"):::redDashed
+  Chip("@claro/http chip"):::chip
+  Link("threescale… 16px"):::linkNote
+
+  H1 --> BUL --> JWT
+  Default --> RedSolid --> RedDashed --> Chip --> Link --> GroupExample
+
+  class GroupExample group
+`,
+  },
+  {
     id: 'flow',
     label: 'Launch Flow',
     kind: 'Flowchart',
