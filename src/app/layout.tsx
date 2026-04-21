@@ -1,6 +1,8 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { IBM_Plex_Mono, Sora } from 'next/font/google'
 import type { ReactNode } from 'react'
+import { AppThemeProvider } from '@/components/app-theme-provider'
+import { getThemeInitializationScript } from '@/lib/app-themes'
 import './globals.css'
 
 const sora = Sora({
@@ -16,11 +18,11 @@ const ibmPlexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: 'Better Mermaid Dashboard',
-  applicationName: 'Better Mermaid',
   description: 'Compact Mermaid dashboard powered by beautiful-mermaid and Next.js 16.',
-  icons: {
-    icon: [{ url: '/chart-icon.svg', type: 'image/svg+xml' }],
-  },
+}
+
+export const viewport: Viewport = {
+  themeColor: '#f5f5f5',
 }
 
 export default function RootLayout({
@@ -30,8 +32,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${sora.variable} ${ibmPlexMono.variable}`} suppressHydrationWarning>
-        {children}
+      <body className={`${sora.variable} ${ibmPlexMono.variable}`}>
+        <script
+          dangerouslySetInnerHTML={{ __html: getThemeInitializationScript() }}
+        />
+        <AppThemeProvider>{children}</AppThemeProvider>
       </body>
     </html>
   )

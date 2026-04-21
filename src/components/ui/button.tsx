@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes } from 'react'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] border text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
   {
     defaultVariants: {
       size: 'default',
@@ -16,7 +16,7 @@ const buttonVariants = cva(
         sm: 'h-7 px-2.5',
       },
       variant: {
-        default: 'border-white bg-white text-black hover:bg-white/90',
+        default: 'border-primary bg-primary text-primary-foreground hover:bg-primary/90',
         destructive:
           'border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90',
         ghost: 'border-transparent bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground',

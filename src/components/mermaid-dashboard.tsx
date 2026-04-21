@@ -2,18 +2,15 @@
 
 import type { DiagramColors } from 'beautiful-mermaid'
 import {
-  Copy,
   Download,
+  ExternalLink,
   Expand,
-  Monitor,
-  Moon,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Settings2,
   Sparkles,
-  Sun,
   Trash2,
 } from 'lucide-react'
 import {
@@ -25,9 +22,23 @@ import {
   type FormEvent,
 } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { presets, type DiagramPreset } from '@/presets'
+import {
+  useAppTheme,
+} from '@/components/app-theme-provider'
+import { AppThemeToggle } from '@/components/app-theme-toggle'
+import { defaultPresetId, presets, type DiagramPreset } from '@/presets'
 import { MermaidCodeEditor } from '@/components/mermaid-code-editor'
 import { Button } from '@/components/ui/button'
+import {
+  decorateSvgForTheme,
+  DEFAULT_THEME,
+  FALLBACK_THEME_COLORS,
+  formatThemeName,
+  isSupportedTheme,
+  MERMAID_THEME_OPTIONS,
+  resolveThemeDefinition,
+  type DiagramThemeDefinition,
+} from '@/lib/diagram-themes'
 import {
   Dialog,
   DialogContent,
@@ -43,20 +54,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import {
-  DEFAULT_DIAGRAM_THEME,
-  readPreferences,
-  writePreferences,
-} from '@/lib/app-preferences'
-import {
-  buildClaroFlowchartSource,
-  claroMermaidFont,
-  getClaroMermaidColors,
-} from '@/lib/claro-mermaid-theme'
-import { polishClaroSvgCorners } from '@/lib/claro-svg-polish'
+import type { ResolvedAppearance } from '@/lib/app-themes'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
-import { useAppTheme } from '@/components/theme-provider'
 
 interface GraphDocument {
   id: string
@@ -69,7 +69,6 @@ interface AppState {
   activeGraphId: string
   codeFontSize: number
   theme: string
-  defaultDiagramTheme: string
   transparent: boolean
   graphs: GraphDocument[]
 }
@@ -100,55 +99,23 @@ interface RemoteGraphState {
 }
 
 type MermaidModule = typeof import('beautiful-mermaid')
+type NativeMermaidModule = typeof import('mermaid')
 
 const STORAGE_KEY = 'better-mermaid-next:v3'
 const DEFAULT_CODE_FONT_SIZE = 16
-const DEFAULT_THEME = DEFAULT_DIAGRAM_THEME
 const DEFAULT_CODE = `graph TD
   Start[Start] --> Draft[Edit Mermaid]
   Draft --> Render[Render preview]
   Render --> Share[Export SVG]
 `
-const THEME_NAMES = [
-  'claro',
-  'catppuccin-latte',
-  'catppuccin-mocha',
-  'dracula',
-  'github-dark',
-  'github-light',
-  'nord',
-  'nord-light',
-  'one-dark',
-  'solarized-dark',
-  'solarized-light',
-  'tokyo-night',
-  'tokyo-night-light',
-  'tokyo-night-storm',
-  'zinc-dark',
-  'zinc-light',
-]
-const fallbackColors: DiagramColors = {
-  ...getClaroMermaidColors('dark'),
-}
-const themeNames = [...THEME_NAMES].sort((left, right) =>
-  formatThemeName(left).localeCompare(formatThemeName(right)),
-)
+const fallbackColors: DiagramColors = FALLBACK_THEME_COLORS
 
 let mermaidModulePromise: Promise<MermaidModule> | null = null
-
-function isFlowchartHeader(code: string): boolean {
-  const first = code
-    .split('\n')
-    .map((l) => l.trim())
-    .find((l) => l.length > 0 && !l.startsWith('%%'))
-  if (!first) {
-    return false
-  }
-  return /^(graph|flowchart)\s+(TD|TB|LR|BT|RL)\b/i.test(first)
-}
+let nativeMermaidModulePromise: Promise<NativeMermaidModule> | null = null
+let nativeMermaidRenderCount = 0
 
 export function MermaidDashboard() {
-  const { resolvedTheme, setUiTheme, uiTheme } = useAppTheme()
+  const { resolvedAppearance } = useAppTheme()
   const [state, setState] = useState<AppState>(createDefaultState)
   const [isHydrated, setIsHydrated] = useState(false)
   const [isAuthReady, setIsAuthReady] = useState(false)
@@ -164,7 +131,6 @@ export function MermaidDashboard() {
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
-  const [copyLabel, setCopyLabel] = useState('Copy')
   const [renderState, setRenderState] = useState<RenderState>({
     canExport: false,
     colors: fallbackColors,
@@ -187,25 +153,22 @@ export function MermaidDashboard() {
 
   const activeGraph = useMemo(() => getActiveGraph(state), [state])
   const debouncedCode = useDebouncedValue(activeGraph.code, 120)
-  const claroUiVariant = resolvedTheme === 'light' ? 'light' : 'dark'
-  const debouncedCodeForRender = useMemo(() => {
-    if (state.theme !== 'claro' || !isFlowchartHeader(debouncedCode)) {
-      return debouncedCode
-    }
-    return buildClaroFlowchartSource(debouncedCode, claroUiVariant)
-  }, [claroUiVariant, debouncedCode, state.theme])
   const previewStyle = useMemo(
     () =>
       ({
         '--diagram-accent': renderState.colors.accent ?? renderState.colors.line ?? renderState.colors.fg,
-        '--diagram-bg':
-          state.theme === 'claro' ? 'transparent' : renderState.colors.bg,
+        '--diagram-bg': renderState.colors.bg,
         '--diagram-ink': renderState.colors.fg,
         '--diagram-line': renderState.colors.border ?? renderState.colors.line ?? renderState.colors.fg,
         '--diagram-surface': renderState.colors.surface ?? renderState.colors.bg,
+        background: state.transparent ? 'transparent' : renderState.colors.bg,
       }) as CSSProperties,
-    [renderState.colors, resolvedTheme, state.theme],
+    [renderState.colors, state.transparent],
   )
+
+  async function renderSvgWithCurrentTheme(transparent: boolean) {
+    return renderSvgForCode(activeGraph.code, state.theme, resolvedAppearance, transparent)
+  }
 
   useEffect(() => {
     let subscription: { unsubscribe: () => void } | null = null
@@ -258,13 +221,7 @@ export function MermaidDashboard() {
           const remoteState = await readRemoteState()
 
           if (remoteState) {
-            const prefs = readPreferences()
-            setState({
-              ...remoteState,
-              defaultDiagramTheme: THEME_NAMES.includes(prefs.defaultDiagramTheme)
-                ? prefs.defaultDiagramTheme
-                : DEFAULT_THEME,
-            })
+            setState(remoteState)
           }
           setIsRemoteReady(true)
         } else {
@@ -305,13 +262,7 @@ export function MermaidDashboard() {
       const remoteState = await readRemoteState()
 
       if (remoteState) {
-        const prefs = readPreferences()
-        setState({
-          ...remoteState,
-          defaultDiagramTheme: THEME_NAMES.includes(prefs.defaultDiagramTheme)
-            ? prefs.defaultDiagramTheme
-            : DEFAULT_THEME,
-        })
+        setState(remoteState)
       }
 
       setIsRemoteReady(true)
@@ -438,33 +389,18 @@ export function MermaidDashboard() {
 
     void (async () => {
       try {
-        const mermaid = await loadMermaidModule()
-
         if (renderId !== renderIdRef.current) {
           return
         }
 
-        const colors =
-          state.theme === 'claro'
-            ? getClaroMermaidColors(claroUiVariant)
-            : (mermaid.THEMES[state.theme] ?? mermaid.THEMES['github-dark'])
-        let svg = mermaid.renderMermaidSVG(
-          state.theme === 'claro' ? debouncedCodeForRender : debouncedCode,
-          {
-            ...colors,
-            font: state.theme === 'claro' ? `${claroMermaidFont}, sans-serif` : 'Sora, sans-serif',
-            interactive: true,
-            layerSpacing: 40,
-            nodeSpacing: 24,
-            padding: 40,
-            transparent: state.theme === 'claro' ? true : state.transparent,
-          },
+        const { svg: decoratedSvg, themeDefinition } = await renderSvgForCode(
+          debouncedCode,
+          state.theme,
+          resolvedAppearance,
+          true,
         )
-        if (state.theme === 'claro') {
-          svg = polishClaroSvgCorners(svg)
-        }
 
-        renderCacheRef.current.set(activeGraph.id, svg)
+        renderCacheRef.current.set(activeGraph.id, decoratedSvg)
 
         if (renderId !== renderIdRef.current) {
           return
@@ -472,17 +408,12 @@ export function MermaidDashboard() {
 
         setRenderState({
           canExport: true,
-          colors,
+          colors: themeDefinition.colors,
           error: '',
-          previewNote: buildPreviewNote(
-            activeGraph,
-            state.theme,
-            state.transparent,
-            state.theme === 'claro' ? claroUiVariant : undefined,
-          ),
+          previewNote: buildPreviewNote(activeGraph, state.theme, state.transparent),
           renderTime: formatDuration(performance.now() - startedAt),
           status: 'good',
-          svg,
+          svg: decoratedSvg,
         })
       } catch (error) {
         if (renderId !== renderIdRef.current) {
@@ -505,56 +436,54 @@ export function MermaidDashboard() {
         }))
       }
     })()
-  }, [
-    activeGraph.id,
-    claroUiVariant,
-    debouncedCode,
-    debouncedCodeForRender,
-    state.theme,
-    state.transparent,
-  ])
-
-  async function handleCopy() {
-    if (!renderState.canExport || !renderState.svg) {
-      return
-    }
-
-    try {
-      await navigator.clipboard.writeText(renderState.svg)
-      setCopyLabel('Copied')
-
-      if (copyResetRef.current !== null) {
-        window.clearTimeout(copyResetRef.current)
-      }
-
-      copyResetRef.current = window.setTimeout(() => {
-        setCopyLabel('Copy')
-      }, 1200)
-    } catch {
-      setRenderState((current) => ({
-        ...current,
-        error: 'Clipboard access is blocked here.',
-        status: 'error',
-      }))
-    }
-  }
+  }, [activeGraph.id, debouncedCode, resolvedAppearance, state.theme])
 
   function handleDownload() {
     if (!renderState.canExport || !renderState.svg) {
       return
     }
+    void (async () => {
+      try {
+        const { svg } = await renderSvgWithCurrentTheme(state.transparent)
+        const pngBlob = await rasterizeSvgToPngBlob(svg)
 
-    const blob = new Blob([renderState.svg], { type: 'image/svg+xml;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
+        downloadBlob(pngBlob, `${slugify(activeGraph.title || activeGraph.id)}.png`)
+      } catch (error) {
+        setRenderState((current) => ({
+          ...current,
+          error: getPngExportErrorMessage(error),
+          status: 'error',
+        }))
+      }
+    })()
+  }
 
-    link.href = url
-    link.download = `${slugify(activeGraph.title || activeGraph.id)}.svg`
-    link.click()
+  function handleOpenPng() {
+    if (!renderState.canExport || !renderState.svg) {
+      return
+    }
 
-    window.setTimeout(() => {
-      URL.revokeObjectURL(url)
-    }, 0)
+    void (async () => {
+      try {
+        const { svg } = await renderSvgWithCurrentTheme(state.transparent)
+        const pngUrl = await rasterizeSvgToPng(svg)
+        const openedWindow = window.open(pngUrl, '_blank', 'noopener,noreferrer')
+
+        if (!openedWindow) {
+          throw new Error('popup-blocked')
+        }
+
+        window.setTimeout(() => {
+          URL.revokeObjectURL(pngUrl)
+        }, 30000)
+      } catch (error) {
+        setRenderState((current) => ({
+          ...current,
+          error: getOpenPngErrorMessage(error),
+          status: 'error',
+        }))
+      }
+    })()
   }
 
   async function handleToggleFullscreen() {
@@ -655,7 +584,7 @@ export function MermaidDashboard() {
   }
 
   function useDefaults() {
-    setState(createDefaultState(readPreferences().defaultDiagramTheme))
+    setState(createDefaultState())
     setIsConfigOpen(false)
   }
 
@@ -747,6 +676,13 @@ export function MermaidDashboard() {
     setIsRemoteReady(false)
   }
 
+  function openAuthDialog(mode: 'sign-in' | 'sign-up') {
+    setAuthMode(mode)
+    setAuthError(null)
+    setAuthNotice(null)
+    setIsAuthModalOpen(true)
+  }
+
   const statusText =
     renderState.status === 'good'
       ? 'Ready'
@@ -767,7 +703,7 @@ export function MermaidDashboard() {
       >
         <aside
           className={cn(
-            'hidden min-h-0 flex-col rounded-lg border border-border bg-card/90 p-2 md:flex',
+            'hidden min-h-0 flex-col rounded-[10px] border border-border bg-card/90 p-2 md:flex',
             isSidebarCollapsed && 'pointer-events-none w-0 overflow-hidden border-transparent p-0 opacity-0',
           )}
         >
@@ -800,16 +736,16 @@ export function MermaidDashboard() {
               state.graphs.map((graph) => (
               <div
                 className={cn(
-                  'flex items-center gap-1 rounded-md border p-1 transition-colors',
+                  'flex items-center gap-1 rounded-[10px] border p-1 transition-colors',
                   graph.id === activeGraph.id
-                    ? 'border-primary/25 bg-primary text-primary-foreground'
+                    ? 'border-primary/20 bg-primary text-primary-foreground'
                     : 'border-border bg-secondary text-foreground',
                 )}
                 key={graph.id}
               >
                 <button
                   aria-selected={graph.id === activeGraph.id}
-                  className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-xs"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-[10px] px-2 py-1.5 text-left text-xs"
                   onClick={() => setState((current) => ({ ...current, activeGraphId: graph.id }))}
                   role="tab"
                   title={graph.title}
@@ -826,7 +762,7 @@ export function MermaidDashboard() {
                       className={cn(
                         'size-7 px-0',
                         graph.id === activeGraph.id
-                          ? 'border-primary-foreground/15 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/15'
+                          ? 'border-primary-foreground/15 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20'
                           : 'border-transparent bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                       )}
                       size="icon"
@@ -862,25 +798,44 @@ export function MermaidDashboard() {
                 </Button>
               </>
             ) : (
-              <Button
-                className="w-full"
-                onClick={() => {
-                  setAuthMode('sign-in')
-                  setAuthError(null)
-                  setAuthNotice(null)
-                  setIsAuthModalOpen(true)
-                }}
-                size="sm"
-                variant="outline"
-              >
-                Login / Register
-              </Button>
+              <>
+                <div
+                  className="rounded-[14px] border px-3 py-3"
+                  style={{
+                    background: 'var(--sync-notice-bg)',
+                    borderColor: 'var(--sync-notice-border)',
+                    boxShadow: 'var(--sync-notice-shadow)',
+                  }}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-col gap-2">
+                      <Button
+                        className="h-9 w-full rounded-[10px] text-[12px] font-semibold"
+                        onClick={() => openAuthDialog('sign-up')}
+                        size="sm"
+                        variant="default"
+                      >
+                        Sign up
+                      </Button>
+
+                      <Button
+                        className="h-9 w-full rounded-[10px] border [border-color:var(--sync-notice-button-border)] [background:var(--sync-notice-button-bg)] [color:var(--sync-notice-button-fg)] hover:[background:var(--sync-notice-button-hover)]"
+                        onClick={() => openAuthDialog('sign-in')}
+                        size="sm"
+                        variant="outline"
+                      >
+                        Log in
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </aside>
 
         <section className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-2">
-          <header className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-border bg-card/90 px-2 py-1.5">
+          <header className="flex min-h-11 items-center justify-between gap-2 rounded-[10px] border border-border bg-card/90 px-2 py-1.5">
             <div className="flex min-w-0 items-center gap-2">
               <Button
                 aria-label={isSidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
@@ -903,102 +858,77 @@ export function MermaidDashboard() {
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-1.5">
-              <div className="mr-0.5 hidden items-center rounded-md border border-border p-0.5 sm:flex">
-                <Button
-                  aria-label="Light UI"
-                  className={cn('size-7 px-0', uiTheme === 'light' && 'bg-accent text-accent-foreground')}
-                  onClick={() => setUiTheme('light')}
-                  size="icon"
-                  variant="ghost"
-                >
-                  <Sun className="size-3.5" />
-                </Button>
-                <Button
-                  aria-label="Dark UI"
-                  className={cn('size-7 px-0', uiTheme === 'dark' && 'bg-accent text-accent-foreground')}
-                  onClick={() => setUiTheme('dark')}
-                  size="icon"
-                  variant="ghost"
-                >
-                  <Moon className="size-3.5" />
-                </Button>
-                <Button
-                  aria-label="Match system theme"
-                  className={cn('size-7 px-0', uiTheme === 'system' && 'bg-accent text-accent-foreground')}
-                  onClick={() => setUiTheme('system')}
-                  size="icon"
-                  variant="ghost"
-                >
-                  <Monitor className="size-3.5" />
-                </Button>
-              </div>
+              <AppThemeToggle />
 
               <Button onClick={() => setIsConfigOpen(true)} size="sm" variant="ghost">
                 <Settings2 className="size-3.5" />
                 Config
               </Button>
 
-              <Button onClick={handleToggleFullscreen} size="sm" variant="ghost">
-                <Expand className="size-3.5" />
-                {isFullscreen ? 'Exit full' : 'Full page'}
-              </Button>
-
-              <Button disabled={!renderState.canExport} onClick={handleCopy} size="sm" variant="secondary">
-                <Copy className="size-3.5" />
-                {copyLabel}
-              </Button>
-
-              <Button disabled={!renderState.canExport} onClick={handleDownload} size="sm" variant="secondary">
-                <Download className="size-3.5" />
-                Download
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button disabled={!renderState.canExport} size="sm" variant="secondary">
+                    <Download className="size-3.5" />
+                    PNG
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onSelect={() => void handleOpenPng()}>
+                    <ExternalLink className="size-3.5" />
+                    Open PNG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void handleDownload()}>
+                    <Download className="size-3.5" />
+                    Download PNG
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </header>
 
           {renderState.error ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground">
+            <div className="rounded-[10px] border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground">
               {renderState.error}
             </div>
           ) : null}
 
-          {!authUser && isAuthReady ? (
-            <div className="rounded-lg border border-border bg-card/80 px-3 py-2 text-xs text-muted-foreground">
-              You are editing locally. Sign in to sync graphs.
-            </div>
-          ) : null}
-
           <div className="grid min-h-0 gap-2 xl:grid-cols-[minmax(16rem,24%)_minmax(0,1fr)]">
-            <div className="min-h-0 overflow-hidden rounded-lg border border-border bg-card/90">
+            <div className="min-h-0 overflow-hidden rounded-[10px] border border-border bg-card/90">
               {showWorkspaceSkeleton ? (
                 <CodePanelSkeleton />
               ) : (
                 <MermaidCodeEditor
+                  appearance={resolvedAppearance}
                   fontSize={state.codeFontSize}
                   onChange={handleCodeChange}
-                  uiVariant={resolvedTheme}
                   value={activeGraph.code}
                 />
               )}
             </div>
 
             <div
-              className={cn(
-                'preview-frame min-h-0 overflow-hidden rounded-lg border border-border',
-                state.theme === 'claro'
-                  ? 'bg-transparent'
-                  : resolvedTheme === 'light'
-                    ? 'bg-[linear-gradient(180deg,#f4f4f5,#fafafa)]'
-                    : 'bg-[linear-gradient(180deg,#090b0f,#07080b)]',
-              )}
+              className="preview-frame relative min-h-0 overflow-hidden rounded-[10px] border border-border"
               ref={previewRef}
               style={previewStyle}
             >
+              <div className="pointer-events-none absolute right-3 top-3 z-10">
+                <Button
+                  className="pointer-events-auto h-8 rounded-[10px] border-border/70 bg-card/92 shadow-sm backdrop-blur"
+                  onClick={handleToggleFullscreen}
+                  size="sm"
+                  variant="secondary"
+                >
+                  <Expand className="size-3.5" />
+                  {isFullscreen ? 'Exit full' : 'Full page'}
+                </Button>
+              </div>
+
               <div className="h-full overflow-auto p-3">
                 {showWorkspaceSkeleton ? (
                   <GraphPreviewSkeleton />
                 ) : renderState.svg ? (
                   <div
-                    className="mermaid-diagram-svg grid min-h-full min-w-full place-items-center [&_svg]:block [&_svg]:h-auto [&_svg]:max-w-none"
+                    className="grid min-h-full min-w-full place-items-center [&_svg]:block [&_svg]:h-auto [&_svg]:max-w-none"
                     dangerouslySetInnerHTML={{ __html: renderState.svg }}
                   />
                 ) : (
@@ -1013,202 +943,131 @@ export function MermaidDashboard() {
       </div>
 
       <Dialog onOpenChange={setIsConfigOpen} open={isConfigOpen}>
-        <DialogContent className="max-w-4xl border-border bg-popover p-0 text-popover-foreground">
-          <div className="grid max-h-[85dvh] min-h-0 gap-0 md:grid-cols-[18rem_minmax(0,1fr)]">
-            <div className="border-b border-border p-5 md:border-b-0 md:border-r">
+        <DialogContent className="max-h-[88dvh] max-w-[1120px] overflow-hidden border-border bg-popover p-0 text-popover-foreground">
+          <div className="grid max-h-[88dvh] min-h-0 gap-0 overflow-y-auto lg:grid-cols-[20rem_minmax(0,1fr)] lg:overflow-hidden">
+            <div className="border-b border-border bg-muted/20 p-5 lg:overflow-y-auto lg:border-b-0 lg:border-r">
               <DialogHeader className="space-y-2 text-left">
                 <DialogTitle className="flex items-center gap-2 text-base font-semibold">
                   <Settings2 className="size-4" />
                   Configuration
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground">
-                  Keep the defaults if you want speed. Open this only when you want to tune the renderer or load example graphs.
+                  Tune the app theme and the Mermaid renderer. Graph naming stays in the main header.
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="mt-5 space-y-4">
-                <div className="space-y-2 sm:hidden">
-                  <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                    App appearance
-                  </label>
-                  <select
-                    className="flex h-9 w-full rounded-md border border-input bg-secondary px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
-                    onChange={(event) => {
-                      const v = event.target.value
-                      if (v === 'light' || v === 'dark' || v === 'system') {
-                        setUiTheme(v)
-                      }
-                    }}
-                    value={uiTheme}
-                  >
-                    <option value="system">System</option>
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                    Graph name
-                  </label>
-                  <Input
-                    onChange={(event) => updateGraph(activeGraph.id, { title: event.target.value })}
-                    value={activeGraph.title ?? ''}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                    Mermaid theme
-                  </label>
-                  <select
-                    className="flex h-9 w-full rounded-md border border-input bg-secondary px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
-                    onChange={(event) =>
-                      setState((current) => ({
-                        ...current,
-                        theme: THEME_NAMES.includes(event.target.value) ? event.target.value : DEFAULT_THEME,
-                      }))
-                    }
-                    value={state.theme}
-                  >
-                    {themeNames.map((theme) => (
-                      <option key={theme} value={theme}>
-                        {formatThemeName(theme)}
-                      </option>
-                    ))}
-                  </select>
-                  {state.theme === 'claro' ? (
-                    <p className="text-[11px] leading-4 text-muted-foreground">
-                      Claro follows your app theme: <strong className="text-foreground">light</strong> or{' '}
-                      <strong className="text-foreground">dark</strong> canvas, contrasting reds, and rounded box
-                      corners (also in sequence/class diagrams).
+              <div className="mt-6 space-y-5">
+                <section className="space-y-3 rounded-[14px] border border-border bg-card px-4 py-4">
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      Interface
                     </p>
-                  ) : null}
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                    Default Mermaid theme
-                  </label>
-                  <p className="text-[11px] leading-4 text-muted-foreground">
-                    Used for new sessions and when you click “Use defaults”.
-                  </p>
-                  <select
-                    className="flex h-9 w-full rounded-md border border-input bg-secondary px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
-                    onChange={(event) => {
-                      const next =
-                        THEME_NAMES.includes(event.target.value) ? event.target.value : DEFAULT_THEME
-                      writePreferences({ defaultDiagramTheme: next })
-                      setState((current) => ({
-                        ...current,
-                        defaultDiagramTheme: next,
-                      }))
-                    }}
-                    value={
-                      THEME_NAMES.includes(state.defaultDiagramTheme)
-                        ? state.defaultDiagramTheme
-                        : DEFAULT_THEME
-                    }
-                  >
-                    {themeNames.map((theme) => (
-                      <option key={theme} value={theme}>
-                        {formatThemeName(theme)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                    Code font size
-                  </label>
-                  <Input
-                    max={28}
-                    min={12}
-                    onChange={(event) => {
-                      const parsed = Number(event.target.value)
-
-                      setState((current) => ({
-                        ...current,
-                        codeFontSize:
-                          Number.isFinite(parsed) && parsed >= 12 && parsed <= 28
-                            ? parsed
-                            : DEFAULT_CODE_FONT_SIZE,
-                      }))
-                    }}
-                    type="number"
-                    value={state.codeFontSize ?? DEFAULT_CODE_FONT_SIZE}
-                  />
-                </div>
-
-                <label className="flex items-center gap-2 rounded-md border border-input bg-secondary px-3 py-2 text-sm">
-                  <input
-                    checked={state.transparent}
-                    className="accent-white"
-                    onChange={(event) =>
-                      setState((current) => ({
-                        ...current,
-                        transparent: event.target.checked,
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  Transparent SVG export
-                </label>
-
-                <div className="space-y-2 rounded-md border border-input bg-card p-3">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                    Current graph
-                  </p>
-
-                  <div className="grid gap-2 text-xs text-muted-foreground">
-                    <div className="flex justify-between gap-2">
-                      <span>Status</span>
-                      <span className="text-foreground">{statusText}</span>
-                    </div>
-
-                    <div className="flex justify-between gap-2">
-                      <span>Lines</span>
-                      <span className="text-foreground">{countLines(activeGraph.code)}</span>
-                    </div>
-
-                    <div className="flex justify-between gap-2">
-                      <span>Chars</span>
-                      <span className="text-foreground">{activeGraph.code.length}</span>
-                    </div>
-
-                    <div className="flex justify-between gap-2">
-                      <span>Render</span>
-                      <span className="text-foreground">{renderState.renderTime}</span>
-                    </div>
-
-                    <p className="pt-1 text-[11px] leading-5 text-muted-foreground">
-                      {renderState.error || renderState.previewNote}
+                    <p className="text-xs text-muted-foreground">
+                      Controls only the app chrome.
                     </p>
                   </div>
-                </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      Theme
+                    </label>
+                    <AppThemeToggle className="w-full justify-between" />
+                  </div>
+                </section>
+
+                <section className="space-y-4 rounded-[14px] border border-border bg-card px-4 py-4">
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      Diagram
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Style and export settings for the rendered graph.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      Diagram style
+                    </label>
+                    <select
+                      className="flex h-9 w-full rounded-[10px] border border-input bg-secondary px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                      onChange={(event) =>
+                        setState((current) => ({
+                          ...current,
+                          theme: isSupportedTheme(event.target.value) ? event.target.value : DEFAULT_THEME,
+                        }))
+                      }
+                      value={state.theme}
+                    >
+                      {MERMAID_THEME_OPTIONS.map((theme) => (
+                        <option key={theme} value={theme}>
+                          {formatThemeName(theme)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      Code font size
+                    </label>
+                    <Input
+                      max={28}
+                      min={12}
+                      onChange={(event) => {
+                        const parsed = Number(event.target.value)
+
+                        setState((current) => ({
+                          ...current,
+                          codeFontSize:
+                            Number.isFinite(parsed) && parsed >= 12 && parsed <= 28
+                              ? parsed
+                              : DEFAULT_CODE_FONT_SIZE,
+                        }))
+                      }}
+                      type="number"
+                      value={state.codeFontSize ?? DEFAULT_CODE_FONT_SIZE}
+                    />
+                  </div>
+
+                  <label className="flex items-center gap-2 rounded-[10px] border border-input bg-secondary px-3 py-2 text-sm">
+                    <input
+                      checked={state.transparent}
+                      className="accent-primary"
+                      onChange={(event) =>
+                        setState((current) => ({
+                          ...current,
+                          transparent: event.target.checked,
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    Transparent SVG export
+                  </label>
+                </section>
+
               </div>
             </div>
 
-            <div className="flex min-h-0 flex-col p-5">
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div>
+            <div className="flex min-h-0 flex-col p-5 lg:overflow-y-auto">
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
                   <p className="text-sm font-medium text-foreground">Examples</p>
                   <p className="text-xs text-muted-foreground">
-                    Hidden from the main UI. Load one into the current graph or add it as a new graph.
+                    Load a preset into the active graph or create a new one from it.
                   </p>
                 </div>
 
                 <Button onClick={useDefaults} size="sm" variant="outline">
                   <Sparkles className="size-3.5" />
-                  Use defaults
+                  Reset settings
                 </Button>
               </div>
 
               <div className="min-h-0 space-y-2 overflow-auto pr-1">
                 {presets.map((preset) => (
                   <div
-                    className="flex flex-col gap-3 rounded-md border border-input bg-card px-3 py-3 md:flex-row md:items-center md:justify-between"
+                    className="flex flex-col gap-3 rounded-[14px] border border-input bg-card px-4 py-3 xl:flex-row xl:items-center xl:justify-between"
                     key={preset.id}
                   >
                     <div className="min-w-0">
@@ -1223,10 +1082,10 @@ export function MermaidDashboard() {
 
                     <div className="flex shrink-0 flex-wrap gap-1.5">
                       <Button onClick={() => applyPresetToCurrent(preset)} size="sm" variant="secondary">
-                        Use current
+                        Replace current
                       </Button>
                       <Button onClick={() => addGraphFromPreset(preset)} size="sm" variant="outline">
-                        Add graph
+                        Add as new
                       </Button>
                     </div>
                   </div>
@@ -1347,7 +1206,7 @@ function GraphListSkeleton() {
   return (
     <div className="space-y-1">
       {Array.from({ length: 7 }).map((_, index) => (
-        <div className="animate-pulse rounded-md border border-border bg-secondary px-3 py-2" key={index}>
+        <div className="animate-pulse rounded-[10px] border border-border bg-secondary px-3 py-2" key={index}>
           <div className="h-3 w-3/4 rounded bg-muted" />
         </div>
       ))}
@@ -1357,12 +1216,12 @@ function GraphListSkeleton() {
 
 function CodePanelSkeleton() {
   return (
-    <div className="h-full w-full bg-secondary p-3 font-mono text-[11px]">
+    <div className="h-full w-full bg-[var(--editor-bg)] p-3 font-mono text-[11px]">
       <div className="h-full space-y-2">
         {Array.from({ length: 16 }).map((_, index) => (
           <div className="animate-pulse" key={index}>
             <div
-              className="h-3 rounded bg-muted"
+              className="h-3 rounded bg-[var(--preview-skeleton-muted)]"
               style={{ width: `${88 - (index % 5) * 11}%` }}
             />
           </div>
@@ -1375,14 +1234,17 @@ function CodePanelSkeleton() {
 function GraphPreviewSkeleton() {
   return (
     <div className="grid min-h-full min-w-full place-items-stretch">
-      <div className="h-full w-full space-y-3 rounded-lg border border-border bg-muted/30 p-4">
-        <div className="h-4 w-44 animate-pulse rounded bg-muted" />
+      <div className="h-full w-full space-y-3 rounded-[10px] border border-border/70 bg-[var(--preview-skeleton-surface)] p-4">
+        <div className="h-4 w-44 animate-pulse rounded bg-[var(--preview-skeleton-muted)]" />
         <div className="grid gap-3 md:grid-cols-4">
           {Array.from({ length: 12 }).map((_, index) => (
-            <div className="h-16 animate-pulse rounded border border-border bg-secondary" key={index} />
+            <div
+              className="h-16 animate-pulse rounded border border-border/60 bg-[var(--preview-skeleton-muted)]"
+              key={index}
+            />
           ))}
         </div>
-        <div className="h-3 w-3/5 animate-pulse rounded bg-muted" />
+        <div className="h-3 w-3/5 animate-pulse rounded bg-[var(--preview-skeleton-muted)]" />
       </div>
     </div>
   )
@@ -1390,7 +1252,11 @@ function GraphPreviewSkeleton() {
 
 function ChevronHint({ active }: { active: boolean }) {
   return (
-    <span className={cn('text-[10px]', active ? 'text-primary-foreground/70' : 'text-muted-foreground')}>›</span>
+    <span
+      className={cn('text-[10px]', active ? 'text-primary-foreground/70' : 'text-muted-foreground')}
+    >
+      ›
+    </span>
   )
 }
 
@@ -1414,6 +1280,114 @@ function loadMermaidModule() {
   mermaidModulePromise ??= import('beautiful-mermaid')
 
   return mermaidModulePromise
+}
+
+function loadNativeMermaidModule() {
+  nativeMermaidModulePromise ??= import('mermaid')
+
+  return nativeMermaidModulePromise
+}
+
+async function renderSvgForCode(
+  code: string,
+  theme: string,
+  appearance: ResolvedAppearance,
+  transparent: boolean,
+) {
+  const mermaid = await loadMermaidModule()
+  const themeDefinition = resolveThemeDefinition(theme, mermaid.THEMES, appearance)
+  const svg = await renderSvgWithPreferredEngine(code, themeDefinition, transparent)
+
+  return {
+    colors: themeDefinition.colors,
+    svg: decorateSvgForTheme(svg, themeDefinition.id, appearance, transparent, themeDefinition.colors.bg),
+    themeDefinition,
+  }
+}
+
+async function renderSvgWithPreferredEngine(
+  code: string,
+  themeDefinition: DiagramThemeDefinition,
+  transparent: boolean,
+) {
+  if (shouldUseNativeMermaidRenderer(code)) {
+    try {
+      return await renderWithNativeMermaid(code, themeDefinition, transparent)
+    } catch {
+      // Fall back to beautiful-mermaid when native Mermaid rejects the graph.
+    }
+  }
+
+  const mermaid = await loadMermaidModule()
+
+  return mermaid.renderMermaidSVG(code, {
+    ...themeDefinition.colors,
+    font: themeDefinition.font,
+    interactive: true,
+    layerSpacing: 40,
+    nodeSpacing: 24,
+    padding: 40,
+    transparent,
+  })
+}
+
+function shouldUseNativeMermaidRenderer(code: string) {
+  return (
+    /^\s*(?:graph|flowchart)\s+(?:TB|TD|LR|BT|RL)\b/i.test(code) &&
+    /\bsubgraph\b/i.test(code) &&
+    /^\s*direction\s+(?:TB|TD|LR|BT|RL)\b/im.test(code)
+  )
+}
+
+async function renderWithNativeMermaid(
+  code: string,
+  themeDefinition: DiagramThemeDefinition,
+  transparent: boolean,
+) {
+  const nativeMermaidModule = await loadNativeMermaidModule()
+  const nativeMermaid = nativeMermaidModule.default
+
+  nativeMermaid.initialize({
+    fontFamily: themeDefinition.font,
+    htmlLabels: false,
+    flowchart: {
+      htmlLabels: false,
+      useMaxWidth: false,
+    },
+    securityLevel: 'loose',
+    startOnLoad: false,
+    theme: 'base',
+    themeVariables: buildNativeThemeVariables(themeDefinition, transparent),
+  })
+
+  const { svg } = await nativeMermaid.render(`better-mermaid-native-${nativeMermaidRenderCount++}`, code)
+
+  return svg
+}
+
+function buildNativeThemeVariables(themeDefinition: DiagramThemeDefinition, transparent: boolean) {
+  const colors = themeDefinition.colors
+  const background = transparent ? 'transparent' : colors.bg
+  const lineColor = colors.line ?? colors.border ?? colors.fg
+  const surfaceColor = colors.surface ?? colors.bg
+
+  return {
+    background,
+    clusterBkg: 'transparent',
+    clusterBorder: lineColor,
+    defaultLinkColor: lineColor,
+    edgeLabelBackground: colors.bg,
+    fontFamily: themeDefinition.font,
+    lineColor,
+    mainBkg: surfaceColor,
+    nodeBorder: colors.border ?? lineColor,
+    primaryBorderColor: colors.border ?? lineColor,
+    primaryColor: surfaceColor,
+    primaryTextColor: colors.fg,
+    secondaryColor: surfaceColor,
+    tertiaryColor: colors.bg,
+    textColor: colors.fg,
+  }
 }
 
 function getActiveGraph(state: AppState) {
@@ -1454,14 +1428,6 @@ function loadSavedState(): AppState {
         .filter((graph): graph is GraphDocument => graph !== null)
 
       if (graphs.length > 0) {
-        const prefs = readPreferences()
-        const savedDefault =
-          typeof (parsed as Partial<AppState>).defaultDiagramTheme === 'string' &&
-          THEME_NAMES.includes((parsed as Partial<AppState>).defaultDiagramTheme as string)
-            ? ((parsed as Partial<AppState>).defaultDiagramTheme as string)
-            : THEME_NAMES.includes(prefs.defaultDiagramTheme)
-              ? prefs.defaultDiagramTheme
-              : DEFAULT_THEME
         return {
           activeGraphId: graphs.some((graph) => graph.id === parsed.activeGraphId)
             ? (parsed.activeGraphId as string)
@@ -1470,10 +1436,9 @@ function loadSavedState(): AppState {
             typeof parsed.codeFontSize === 'number' && parsed.codeFontSize >= 12 && parsed.codeFontSize <= 28
               ? parsed.codeFontSize
               : DEFAULT_CODE_FONT_SIZE,
-          defaultDiagramTheme: savedDefault,
           graphs,
           theme:
-            typeof parsed.theme === 'string' && THEME_NAMES.includes(parsed.theme)
+            typeof parsed.theme === 'string' && isSupportedTheme(parsed.theme)
               ? parsed.theme
               : DEFAULT_THEME,
           transparent: Boolean(parsed.transparent),
@@ -1487,19 +1452,15 @@ function loadSavedState(): AppState {
         .map((code, index) => createGraph(`Graph ${index + 1}`, code))
 
       if (migratedGraphs.length > 0) {
-        const prefs = readPreferences()
         return {
           activeGraphId: migratedGraphs[0].id,
           codeFontSize:
             typeof parsed.codeFontSize === 'number' && parsed.codeFontSize >= 12 && parsed.codeFontSize <= 28
               ? parsed.codeFontSize
               : DEFAULT_CODE_FONT_SIZE,
-          defaultDiagramTheme: THEME_NAMES.includes(prefs.defaultDiagramTheme)
-            ? prefs.defaultDiagramTheme
-            : DEFAULT_THEME,
           graphs: migratedGraphs,
           theme:
-            typeof parsed.theme === 'string' && THEME_NAMES.includes(parsed.theme)
+            typeof parsed.theme === 'string' && isSupportedTheme(parsed.theme)
               ? parsed.theme
               : DEFAULT_THEME,
           transparent: Boolean(parsed.transparent),
@@ -1513,16 +1474,15 @@ function loadSavedState(): AppState {
   }
 }
 
-function createDefaultState(diagramTheme: string = readPreferences().defaultDiagramTheme): AppState {
-  const graph = createGraph('Graph 1', presets[0]?.code ?? DEFAULT_CODE, presets[0]?.id ?? null)
-  const theme = THEME_NAMES.includes(diagramTheme) ? diagramTheme : DEFAULT_THEME
+function createDefaultState(): AppState {
+  const initialPreset = presets.find((preset) => preset.id === defaultPresetId) ?? presets[0]
+  const graph = createGraph('Graph 1', initialPreset?.code ?? DEFAULT_CODE, initialPreset?.id ?? null)
 
   return {
     activeGraphId: graph.id,
     codeFontSize: DEFAULT_CODE_FONT_SIZE,
-    defaultDiagramTheme: theme,
     graphs: [graph],
-    theme,
+    theme: DEFAULT_THEME,
     transparent: false,
   }
 }
@@ -1546,17 +1506,191 @@ function countLines(code: string) {
   return code.length === 0 ? 0 : code.split(/\r?\n/).length
 }
 
-function buildPreviewNote(
-  graph: GraphDocument,
-  theme: string,
-  transparent: boolean,
-  claroUiVariant?: 'light' | 'dark',
-) {
-  const claroHint =
-    theme === 'claro' && claroUiVariant
-      ? ` (${claroUiVariant === 'dark' ? 'dark' : 'light'} canvas, rounded boxes)`
-      : ''
-  return `${graph.title} rendered with ${formatThemeName(theme)}${claroHint}${transparent ? ' and transparent export on' : ''}.`
+function buildPreviewNote(graph: GraphDocument, theme: string, transparent: boolean) {
+  return `${graph.title} rendered with ${formatThemeName(theme)} style${transparent ? ' and transparent export on' : ''}.`
+}
+
+async function rasterizeSvgToPng(svg: string) {
+  const pngBlob = await rasterizeSvgToPngBlob(svg)
+
+  return URL.createObjectURL(pngBlob)
+}
+
+async function rasterizeSvgToPngBlob(svg: string) {
+  const preparedSvg = prepareSvgForRasterization(svg)
+  const dimensions = getSvgDimensions(svg)
+  const scale = Math.max(2, Math.ceil(window.devicePixelRatio || 1))
+  const canvas = document.createElement('canvas')
+
+  canvas.width = Math.max(1, Math.round(dimensions.width * scale))
+  canvas.height = Math.max(1, Math.round(dimensions.height * scale))
+
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    throw new Error('Canvas context unavailable')
+  }
+
+  context.setTransform(scale, 0, 0, scale, 0, 0)
+
+  try {
+    const image = await loadSvgRasterImage(preparedSvg)
+
+    context.clearRect(0, 0, dimensions.width, dimensions.height)
+    context.drawImage(image, 0, 0, dimensions.width, dimensions.height)
+
+    const pngBlob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/png')
+    })
+
+    if (!pngBlob) {
+      throw new Error('PNG blob unavailable')
+    }
+
+    return pngBlob
+  } catch (error) {
+    throw normalizeRasterizeError(error)
+  }
+}
+
+function getOpenPngErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message === 'popup-blocked') {
+    return 'This browser blocked opening the PNG in a new tab.'
+  }
+
+  return 'PNG open failed in this browser.'
+}
+
+function getPngExportErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    if (error.message === 'popup-blocked') {
+      return 'This browser blocked the PNG download.'
+    }
+
+    if (error.message === 'Image load failed' || error.message === 'createImageBitmap failed') {
+      return 'PNG export failed because the browser could not rasterize this SVG.'
+    }
+  }
+
+  return 'PNG export failed in this browser.'
+}
+
+async function loadSvgRasterImage(svg: string) {
+  const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
+
+  if (typeof createImageBitmap === 'function') {
+    try {
+      return await createImageBitmap(svgBlob)
+    } catch {
+      // Fall back to HTMLImageElement for browsers with partial createImageBitmap support.
+    }
+  }
+
+  const svgUrl = URL.createObjectURL(svgBlob)
+
+  try {
+    return await loadImage(svgUrl)
+  } finally {
+    URL.revokeObjectURL(svgUrl)
+  }
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+
+    image.crossOrigin = 'anonymous'
+    image.decoding = 'sync'
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Image load failed'))
+    image.src = src
+  })
+}
+
+function prepareSvgForRasterization(svg: string) {
+  const parser = new DOMParser()
+  const document = parser.parseFromString(svg, 'image/svg+xml')
+  const root = document.documentElement
+
+  if (root.nodeName.toLowerCase() !== 'svg') {
+    return svg
+  }
+
+  if (!root.hasAttribute('xmlns')) {
+    root.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  }
+
+  if (!root.hasAttribute('xmlns:xlink')) {
+    root.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+  }
+
+  root.querySelectorAll('script, foreignObject').forEach((node) => {
+    node.remove()
+  })
+
+  const safeSansFont = '"Segoe UI", Arial, Helvetica, sans-serif'
+  const styleNodes = root.querySelectorAll('style')
+
+  styleNodes.forEach((styleNode) => {
+    styleNode.textContent = (styleNode.textContent ?? '')
+      .replace(/\bSora\b/g, safeSansFont)
+      .replace(/\bfont-family:\s*trebuchet ms,?[^;}]*/gi, `font-family:${safeSansFont}`)
+  })
+
+  root.querySelectorAll<SVGElement>('[font-family]').forEach((element) => {
+    element.setAttribute('font-family', safeSansFont)
+  })
+
+  return new XMLSerializer().serializeToString(root)
+}
+
+function normalizeRasterizeError(error: unknown) {
+  if (error instanceof Error) {
+    return error
+  }
+
+  return new Error(typeof error === 'string' ? error : 'Unknown rasterization error')
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+
+  link.href = url
+  link.download = filename
+  document.body.append(link)
+  link.click()
+  link.remove()
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url)
+  }, 30000)
+}
+
+function getSvgDimensions(svg: string) {
+  const widthMatch = svg.match(/\bwidth="([\d.]+)(px)?"/i)
+  const heightMatch = svg.match(/\bheight="([\d.]+)(px)?"/i)
+  const viewBoxMatch = svg.match(/\bviewBox="([^"]+)"/i)
+
+  const width = widthMatch ? Number(widthMatch[1]) : NaN
+  const height = heightMatch ? Number(heightMatch[1]) : NaN
+
+  if (Number.isFinite(width) && Number.isFinite(height)) {
+    return { height, width }
+  }
+
+  if (viewBoxMatch) {
+    const parts = viewBoxMatch[1]
+      .trim()
+      .split(/[\s,]+/)
+      .map((value) => Number(value))
+
+    if (parts.length === 4 && Number.isFinite(parts[2]) && Number.isFinite(parts[3])) {
+      return { height: parts[3], width: parts[2] }
+    }
+  }
+
+  return { height: 1080, width: 1920 }
 }
 
 function formatDuration(duration: number) {
@@ -1569,13 +1703,6 @@ function formatDuration(duration: number) {
   }
 
   return `${Math.round(duration)} ms`
-}
-
-function formatThemeName(theme: string) {
-  return theme
-    .split('-')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
 }
 
 function slugify(value: string) {
@@ -1602,15 +1729,11 @@ async function readRemoteState(): Promise<AppState | null> {
       return null
     }
 
-    const prefs = readPreferences()
     return {
       activeGraphId: body.state.activeGraphId,
       codeFontSize: clampCodeFontSize(body.state.codeFontSize),
-      defaultDiagramTheme: THEME_NAMES.includes(prefs.defaultDiagramTheme)
-        ? prefs.defaultDiagramTheme
-        : DEFAULT_THEME,
       graphs: body.state.graphs,
-      theme: THEME_NAMES.includes(body.state.theme) ? body.state.theme : DEFAULT_THEME,
+      theme: isSupportedTheme(body.state.theme) ? body.state.theme : DEFAULT_THEME,
       transparent: body.state.transparent,
     }
   } catch {
@@ -1620,9 +1743,8 @@ async function readRemoteState(): Promise<AppState | null> {
 
 async function writeRemoteState(state: AppState, options?: { keepalive?: boolean }) {
   try {
-    const { defaultDiagramTheme: _omit, ...apiPayload } = state
     const response = await fetch('/api/graphs', {
-      body: JSON.stringify(apiPayload),
+      body: JSON.stringify(state),
       headers: {
         'content-type': 'application/json',
       },
