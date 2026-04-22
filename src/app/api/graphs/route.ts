@@ -7,17 +7,26 @@ import {
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 export async function GET() {
-  const supabase = await createSupabaseServerClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let userId: string | null = null
 
-  if (!user) {
+  try {
+    const supabase = await createSupabaseServerClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    userId = user?.id ?? null
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to verify session'
+    return NextResponse.json({ error: message }, { status: 503 })
+  }
+
+  if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   try {
-    const state = await readGraphState(user.id)
+    const state = await readGraphState(userId)
     return NextResponse.json({ state })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -26,12 +35,21 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createSupabaseServerClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let userId: string | null = null
 
-  if (!user) {
+  try {
+    const supabase = await createSupabaseServerClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    userId = user?.id ?? null
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to verify session'
+    return NextResponse.json({ error: message }, { status: 503 })
+  }
+
+  if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -48,7 +66,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    await writeGraphState(user.id, body)
+    await writeGraphState(userId, body)
     return NextResponse.json({ ok: true })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'

@@ -5,21 +5,27 @@ import {
   Download,
   ExternalLink,
   Expand,
+  Minus,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  RotateCcw,
   Settings2,
   Sparkles,
   Trash2,
 } from 'lucide-react'
 import {
+  memo,
   useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+  type WheelEvent as ReactWheelEvent,
 } from 'react'
 import type { User } from '@supabase/supabase-js'
 import {
@@ -98,11 +104,32 @@ interface RemoteGraphState {
   graphs: RemoteGraph[]
 }
 
+interface PreviewViewport {
+  scale: number
+  x: number
+  y: number
+}
+
+interface SvgViewBox {
+  height: number
+  minX: number
+  minY: number
+  width: number
+}
+
 type MermaidModule = typeof import('beautiful-mermaid')
 type NativeMermaidModule = typeof import('mermaid')
 
 const STORAGE_KEY = 'better-mermaid-next:v3'
 const DEFAULT_CODE_FONT_SIZE = 16
+const DEFAULT_PREVIEW_VIEWPORT: PreviewViewport = {
+  scale: 1,
+  x: 0,
+  y: 0,
+}
+const MIN_PREVIEW_SCALE = 0.5
+const MAX_PREVIEW_SCALE = 3
+const PREVIEW_ZOOM_STEP = 0.2
 const DEFAULT_CODE = `graph TD
   Start[Start] --> Draft[Edit Mermaid]
   Draft --> Render[Render preview]
@@ -129,7 +156,6 @@ export function MermaidDashboard() {
   const [isConfigOpen, setIsConfigOpen] = useState(false)
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in')
-  const [isFullscreen, setIsFullscreen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [renderState, setRenderState] = useState<RenderState>({
     canExport: false,
@@ -141,7 +167,6 @@ export function MermaidDashboard() {
     svg: '',
   })
 
-  const previewRef = useRef<HTMLDivElement | null>(null)
   const renderCacheRef = useRef<Map<string, string>>(new Map())
   const stateRef = useRef(state)
   const renderIdRef = useRef(0)
@@ -227,6 +252,10 @@ export function MermaidDashboard() {
         } else {
           setIsRemoteReady(false)
         }
+      } catch (error) {
+        setAuthUser(null)
+        setIsRemoteReady(false)
+        setAuthError(error instanceof Error ? error.message : 'Unable to reach Supabase')
       } finally {
         setIsAuthReady(true)
       }
@@ -356,15 +385,7 @@ export function MermaidDashboard() {
   }
 
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === previewRef.current)
-    }
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange)
-
       if (copyResetRef.current !== null) {
         window.clearTimeout(copyResetRef.current)
       }
@@ -486,21 +507,6 @@ export function MermaidDashboard() {
     })()
   }
 
-  async function handleToggleFullscreen() {
-    const preview = previewRef.current
-
-    if (!preview) {
-      return
-    }
-
-    if (document.fullscreenElement === preview) {
-      await document.exitFullscreen()
-      return
-    }
-
-    await preview.requestFullscreen()
-  }
-
   function handleCodeChange(code: string) {
     updateGraph(activeGraph.id, { code })
   }
@@ -609,20 +615,24 @@ export function MermaidDashboard() {
     setAuthError(null)
     setAuthNotice(null)
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: authEmail,
-      password: authPassword,
-    })
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: authEmail,
+        password: authPassword,
+      })
 
-    setIsAuthWorking(false)
+      if (error) {
+        setAuthError(error.message)
+        return
+      }
 
-    if (error) {
-      setAuthError(error.message)
-      return
+      setAuthPassword('')
+      setIsAuthModalOpen(false)
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Unable to sign in')
+    } finally {
+      setIsAuthWorking(false)
     }
-
-    setAuthPassword('')
-    setIsAuthModalOpen(false)
   }
 
   async function handleSignUp(event?: FormEvent<HTMLFormElement>) {
@@ -646,21 +656,25 @@ export function MermaidDashboard() {
     setAuthError(null)
     setAuthNotice(null)
 
-    const { error } = await supabase.auth.signUp({
-      email: authEmail,
-      password: authPassword,
-    })
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: authEmail,
+        password: authPassword,
+      })
 
-    setIsAuthWorking(false)
+      if (error) {
+        setAuthError(error.message)
+        return
+      }
 
-    if (error) {
-      setAuthError(error.message)
-      return
+      setAuthPassword('')
+      setAuthNotice('Check your email. We sent you a confirmation link to complete registration.')
+      setAuthMode('sign-in')
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Unable to sign up')
+    } finally {
+      setIsAuthWorking(false)
     }
-
-    setAuthPassword('')
-    setAuthNotice('Check your email. We sent you a confirmation link to complete registration.')
-    setAuthMode('sign-in')
   }
 
   async function handleSignOut() {
@@ -672,8 +686,13 @@ export function MermaidDashboard() {
 
     setAuthError(null)
     setAuthNotice(null)
-    await supabase.auth.signOut()
-    setIsRemoteReady(false)
+
+    try {
+      await supabase.auth.signOut()
+      setIsRemoteReady(false)
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Unable to sign out')
+    }
   }
 
   function openAuthDialog(mode: 'sign-in' | 'sign-up') {
@@ -906,38 +925,11 @@ export function MermaidDashboard() {
               )}
             </div>
 
-            <div
-              className="preview-frame relative min-h-0 overflow-hidden rounded-[10px] border border-border"
-              ref={previewRef}
-              style={previewStyle}
-            >
-              <div className="pointer-events-none absolute right-3 top-3 z-10">
-                <Button
-                  className="pointer-events-auto h-8 rounded-[10px] border-border/70 bg-card/92 shadow-sm backdrop-blur"
-                  onClick={handleToggleFullscreen}
-                  size="sm"
-                  variant="secondary"
-                >
-                  <Expand className="size-3.5" />
-                  {isFullscreen ? 'Exit full' : 'Full page'}
-                </Button>
-              </div>
-
-              <div className="h-full overflow-auto p-3">
-                {showWorkspaceSkeleton ? (
-                  <GraphPreviewSkeleton />
-                ) : renderState.svg ? (
-                  <div
-                    className="grid min-h-full min-w-full place-items-center [&_svg]:block [&_svg]:h-auto [&_svg]:max-w-none"
-                    dangerouslySetInnerHTML={{ __html: renderState.svg }}
-                  />
-                ) : (
-                  <div className="grid min-h-full min-w-full place-items-center text-sm text-muted-foreground">
-                    Preview unavailable for this graph.
-                  </div>
-                )}
-              </div>
-            </div>
+            <PreviewPane
+              previewStyle={previewStyle}
+              showWorkspaceSkeleton={showWorkspaceSkeleton}
+              svg={renderState.svg}
+            />
           </div>
         </section>
       </div>
@@ -1246,6 +1238,279 @@ function GraphPreviewSkeleton() {
         </div>
         <div className="h-3 w-3/5 animate-pulse rounded bg-[var(--preview-skeleton-muted)]" />
       </div>
+    </div>
+  )
+}
+
+const StaticPreviewSvg = memo(function StaticPreviewSvg({
+  containerRef,
+  svg,
+}: {
+  containerRef: RefObject<HTMLDivElement | null>
+  svg: string
+}) {
+  return (
+    <div
+      className="h-full w-full [&_svg]:pointer-events-none [&_svg]:block [&_svg]:h-full [&_svg]:w-full"
+      dangerouslySetInnerHTML={{ __html: svg }}
+      ref={containerRef}
+    />
+  )
+})
+
+function PreviewPane({
+  previewStyle,
+  showWorkspaceSkeleton,
+  svg,
+}: {
+  previewStyle: CSSProperties
+  showWorkspaceSkeleton: boolean
+  svg: string
+}) {
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [previewViewport, setPreviewViewport] = useState<PreviewViewport>(DEFAULT_PREVIEW_VIEWPORT)
+  const previewContentRef = useRef<HTMLDivElement | null>(null)
+  const previewRef = useRef<HTMLDivElement | null>(null)
+  const previewDragRef = useRef<{
+    originX: number
+    originY: number
+    pointerId: number
+    startX: number
+    startY: number
+  } | null>(null)
+  const previewSvgViewBox = useMemo(() => (svg ? getSvgViewBox(svg) : null), [svg])
+
+  useEffect(() => {
+    setPreviewViewport(DEFAULT_PREVIEW_VIEWPORT)
+  }, [svg])
+
+  useEffect(() => {
+    const container = previewContentRef.current
+
+    if (!container) {
+      return
+    }
+
+    if (!svg) {
+      return
+    }
+
+    const svgElement = container.querySelector('svg')
+
+    if (!svgElement) {
+      return
+    }
+
+    svgElement.setAttribute('height', '100%')
+    svgElement.setAttribute('width', '100%')
+    svgElement.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+  }, [svg])
+
+  useEffect(() => {
+    const container = previewContentRef.current
+    const svgElement = container?.querySelector('svg')
+
+    if (!svgElement || !previewSvgViewBox) {
+      return
+    }
+
+    svgElement.setAttribute('viewBox', buildPreviewViewBox(previewSvgViewBox, previewViewport))
+  }, [previewSvgViewBox, previewViewport])
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === previewRef.current)
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }
+  }, [])
+
+  async function handleToggleFullscreen() {
+    const preview = previewRef.current
+
+    if (!preview) {
+      return
+    }
+
+    if (document.fullscreenElement === preview) {
+      await document.exitFullscreen()
+      return
+    }
+
+    await preview.requestFullscreen()
+  }
+
+  function resetPreviewViewport() {
+    setPreviewViewport(DEFAULT_PREVIEW_VIEWPORT)
+  }
+
+  function setPreviewScale(nextScale: number, clientX?: number, clientY?: number) {
+    const preview = previewRef.current
+
+    setPreviewViewport((current) => {
+      const scale = clampPreviewScale(nextScale)
+
+      if (!preview || clientX === undefined || clientY === undefined || scale === current.scale) {
+        return {
+          ...current,
+          scale,
+        }
+      }
+
+      const bounds = preview.getBoundingClientRect()
+      const pointerX = clientX - bounds.left - bounds.width / 2
+      const pointerY = clientY - bounds.top - bounds.height / 2
+      const ratio = scale / current.scale
+
+      return {
+        scale,
+        x: pointerX - (pointerX - current.x) * ratio,
+        y: pointerY - (pointerY - current.y) * ratio,
+      }
+    })
+  }
+
+  function handlePreviewPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!svg || event.button !== 0) {
+      return
+    }
+
+    previewDragRef.current = {
+      originX: previewViewport.x,
+      originY: previewViewport.y,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  function handlePreviewPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = previewDragRef.current
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return
+    }
+
+    setPreviewViewport((current) => ({
+      ...current,
+      x: dragState.originX + event.clientX - dragState.startX,
+      y: dragState.originY + event.clientY - dragState.startY,
+    }))
+  }
+
+  function handlePreviewPointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    if (previewDragRef.current?.pointerId !== event.pointerId) {
+      return
+    }
+
+    previewDragRef.current = null
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  function handlePreviewWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    if (!svg) {
+      return
+    }
+
+    event.preventDefault()
+
+    const direction = event.deltaY < 0 ? 1 : -1
+    setPreviewScale(previewViewport.scale + direction * PREVIEW_ZOOM_STEP, event.clientX, event.clientY)
+  }
+
+  return (
+    <div className="preview-frame relative min-h-0 overflow-hidden rounded-[10px] border border-border" ref={previewRef} style={previewStyle}>
+      <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2">
+        <div className="pointer-events-auto flex items-center gap-1 rounded-[10px] border border-border/70 bg-card/92 p-1 text-[11px] shadow-sm backdrop-blur">
+          <Button
+            aria-label="Zoom out"
+            className="size-7 rounded-[8px] px-0"
+            onClick={() => setPreviewScale(previewViewport.scale - PREVIEW_ZOOM_STEP)}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Minus className="size-3.5" />
+          </Button>
+          <button
+            className="min-w-12 rounded-[8px] px-1.5 py-1 text-center text-[11px] font-medium text-foreground/80"
+            onClick={resetPreviewViewport}
+            type="button"
+          >
+            {Math.round(previewViewport.scale * 100)}%
+          </button>
+          <Button
+            aria-label="Zoom in"
+            className="size-7 rounded-[8px] px-0"
+            onClick={() => setPreviewScale(previewViewport.scale + PREVIEW_ZOOM_STEP)}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Plus className="size-3.5" />
+          </Button>
+          <Button
+            aria-label="Reset zoom and pan"
+            className="size-7 rounded-[8px] px-0"
+            onClick={resetPreviewViewport}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <RotateCcw className="size-3.5" />
+          </Button>
+        </div>
+
+        <Button
+          className="pointer-events-auto h-8 rounded-[10px] border-border/70 bg-card/92 shadow-sm backdrop-blur"
+          onClick={handleToggleFullscreen}
+          size="sm"
+          type="button"
+          variant="secondary"
+        >
+          <Expand className="size-3.5" />
+          {isFullscreen ? 'Exit full' : 'Full page'}
+        </Button>
+      </div>
+
+      <div
+        className={cn('h-full min-h-0 overflow-hidden p-3 pt-14', svg && 'cursor-grab touch-none active:cursor-grabbing')}
+        onPointerCancel={handlePreviewPointerEnd}
+        onPointerDown={handlePreviewPointerDown}
+        onPointerMove={handlePreviewPointerMove}
+        onPointerUp={handlePreviewPointerEnd}
+        onWheel={handlePreviewWheel}
+      >
+        {showWorkspaceSkeleton ? (
+          <GraphPreviewSkeleton />
+        ) : svg ? (
+          <div className="h-full min-h-0 w-full overflow-hidden rounded-[8px]">
+            <StaticPreviewSvg
+              containerRef={previewContentRef}
+              svg={svg}
+            />
+          </div>
+        ) : (
+          <div className="grid min-h-full min-w-full place-items-center text-sm text-muted-foreground">
+            Preview unavailable for this graph.
+          </div>
+        )}
+      </div>
+
+      {svg ? (
+        <div className="pointer-events-none absolute bottom-3 left-3 rounded-[10px] border border-border/60 bg-card/88 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+          Drag to move. Scroll to zoom.
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1668,16 +1933,15 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 function getSvgDimensions(svg: string) {
+  const { height, width } = getSvgViewBox(svg)
+
+  return { height, width }
+}
+
+function getSvgViewBox(svg: string): SvgViewBox {
   const widthMatch = svg.match(/\bwidth="([\d.]+)(px)?"/i)
   const heightMatch = svg.match(/\bheight="([\d.]+)(px)?"/i)
   const viewBoxMatch = svg.match(/\bviewBox="([^"]+)"/i)
-
-  const width = widthMatch ? Number(widthMatch[1]) : NaN
-  const height = heightMatch ? Number(heightMatch[1]) : NaN
-
-  if (Number.isFinite(width) && Number.isFinite(height)) {
-    return { height, width }
-  }
 
   if (viewBoxMatch) {
     const parts = viewBoxMatch[1]
@@ -1685,12 +1949,48 @@ function getSvgDimensions(svg: string) {
       .split(/[\s,]+/)
       .map((value) => Number(value))
 
-    if (parts.length === 4 && Number.isFinite(parts[2]) && Number.isFinite(parts[3])) {
-      return { height: parts[3], width: parts[2] }
+    if (
+      parts.length === 4 &&
+      Number.isFinite(parts[0]) &&
+      Number.isFinite(parts[1]) &&
+      Number.isFinite(parts[2]) &&
+      Number.isFinite(parts[3])
+    ) {
+      return {
+        height: parts[3],
+        minX: parts[0],
+        minY: parts[1],
+        width: parts[2],
+      }
     }
   }
 
-  return { height: 1080, width: 1920 }
+  const width = widthMatch ? Number(widthMatch[1]) : NaN
+  const height = heightMatch ? Number(heightMatch[1]) : NaN
+
+  if (Number.isFinite(width) && Number.isFinite(height)) {
+    return {
+      height,
+      minX: 0,
+      minY: 0,
+      width,
+    }
+  }
+
+  return {
+    height: 1080,
+    minX: 0,
+    minY: 0,
+    width: 1920,
+  }
+}
+
+function buildPreviewViewBox(baseViewBox: SvgViewBox, viewport: PreviewViewport) {
+  const visibleWidth = baseViewBox.width / viewport.scale
+  const visibleHeight = baseViewBox.height / viewport.scale
+  const minX = baseViewBox.minX + (baseViewBox.width - visibleWidth) / 2 - viewport.x * (visibleWidth / baseViewBox.width)
+  const minY = baseViewBox.minY + (baseViewBox.height - visibleHeight) / 2 - viewport.y * (visibleHeight / baseViewBox.height)
+  return `${minX} ${minY} ${visibleWidth} ${visibleHeight}`
 }
 
 function formatDuration(duration: number) {
@@ -1811,4 +2111,24 @@ function clampCodeFontSize(size: number) {
   }
 
   return Math.round(size)
+}
+
+function clampPreviewScale(scale: number) {
+  return clampNumber(scale, MIN_PREVIEW_SCALE, MAX_PREVIEW_SCALE)
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min
+  }
+
+  if (value < min) {
+    return min
+  }
+
+  if (value > max) {
+    return max
+  }
+
+  return value
 }

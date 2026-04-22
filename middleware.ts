@@ -13,28 +13,32 @@ export async function middleware(request: NextRequest) {
     return response
   }
 
-  const supabase = createServerClient(url, publishableKey, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll()
+  try {
+    const supabase = createServerClient(url, publishableKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, options, value }) => {
+            request.cookies.set(name, value)
+          })
+
+          response = NextResponse.next({
+            request,
+          })
+
+          cookiesToSet.forEach(({ name, options, value }) => {
+            response.cookies.set(name, value, options)
+          })
+        },
       },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, options, value }) => {
-          request.cookies.set(name, value)
-        })
+    })
 
-        response = NextResponse.next({
-          request,
-        })
-
-        cookiesToSet.forEach(({ name, options, value }) => {
-          response.cookies.set(name, value, options)
-        })
-      },
-    },
-  })
-
-  await supabase.auth.getUser()
+    await supabase.auth.getUser()
+  } catch (error) {
+    console.error('Supabase middleware session refresh failed', error)
+  }
 
   return response
 }
